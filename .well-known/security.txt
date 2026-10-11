@@ -1,4 +1,4 @@
-Contact: mailto:contact@bervo.ai
+Contact: mailto:security@bervo.ai
 Expires: 2027-10-10T00:00:00.000Z
 Preferred-Languages: en
 Canonical: https://bervo.ai/.well-known/security.txt
