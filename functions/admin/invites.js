@@ -10,7 +10,7 @@
 //
 // Approve / Not now / Mark invited / the note change ONLY the D1 row. Nothing here touches a server; the
 // orchestrator reads an approved row with tools/tenant/invite_to_profile.py (daily-dashboard).
-import { checkAccess, escapeHtml, pruneOld, redirect, SLUG_RE, stripFormatChars } from "../_lib/invites.js";
+import { checkAccess, escapeHtml, pruneOld, redirect, SLUG_RE, stripFormatChars, TRIM_SET } from "../_lib/invites.js";
 
 // [GTM] The invite email Allen copies and sends himself (v1, no mail provider). GTM replaces this text.
 // {first_name} and {link} are filled in on the page; the link is pasted by Allen into the box on the page
@@ -22,6 +22,10 @@ const TRANSITIONS = {
   approve: { to: "approved", from: ["new", "not_now"], stamp: "approved_at" },
   not_now: { to: "not_now", from: ["new", "approved"], stamp: null },
   invited: { to: "invited", from: ["approved"], stamp: "invited_at" },
+  // The customer is live: the row is trimmed to id, cohort, status and dates in the same UPDATE (Allen 11-10).
+  claimed: { to: "claimed", from: ["invited"], stamp: null, trim: true },
+  // The invitation ran out unused (14 days): deleted 90 days later with the not-now rows.
+  expired: { to: "expired", from: ["invited"], stamp: null },
 };
 
 function page(body, status = 200, nonce = "") {
@@ -52,6 +56,15 @@ function renderRow(r) {
   if (TRANSITIONS.approve.from.includes(r.status)) actions.push(btn("approve", "Approve"));
   if (TRANSITIONS.not_now.from.includes(r.status)) actions.push(btn("not_now", "Not now"));
   if (TRANSITIONS.invited.from.includes(r.status)) actions.push(btn("invited", "Mark invited"));
+  if (TRANSITIONS.claimed.from.includes(r.status)) actions.push(btn("claimed", "Mark claimed (trims this request)"));
+  if (TRANSITIONS.expired.from.includes(r.status)) actions.push(btn("expired", "Mark expired"));
+  if (r.status === "claimed") {
+    return `<article class="req" id="r${e(r.id)}"><h2>#${e(r.id)} · <span class="status s-claimed">claimed</span></h2>
+<p>Customer is live; this request was trimmed to its number, cohort and dates.</p>
+<dl><dt>Received</dt><dd>${fmt(r.created_at)}</dd><dt>Cohort</dt><dd>${e(r.cohort)}</dd>
+${r.approved_at ? `<dt>Approved</dt><dd>${fmt(r.approved_at)}</dd>` : ""}${r.invited_at ? `<dt>Invited</dt><dd>${fmt(r.invited_at)}</dd>` : ""}
+<dt>Claimed</dt><dd>${fmt(r.status_changed_at)}</dd></dl></article>`;
+  }
   const slugField = r.status === "new" || r.status === "not_now"
     ? `<label>Slug (optional) <input name="slug" maxlength="31" pattern="[a-z0-9][a-z0-9\\-]{0,30}" value="${e(r.slug || "")}"></label>` : "";
   return `<article class="req" id="r${e(r.id)}">
@@ -87,7 +100,7 @@ ${r.status === "approved" || r.status === "invited" ? `<div class="copy" data-fi
 }
 
 const FILTERS = { open: ["new", "approved", "invited"], new: ["new"], approved: ["approved"], invited: ["invited"],
-  not_now: ["not_now"], all: null };
+  not_now: ["not_now"], claimed: ["claimed"], expired: ["expired"], all: null };
 
 export async function onRequestGet(context) {
   const { request, env } = context;
@@ -153,6 +166,7 @@ export async function onRequestPost(context) {
   const nowIso = new Date(context.nowMs ?? Date.now()).toISOString();
   const note = stripFormatChars(String(form.get("note") ?? "").replace(/\r\n?/g, "\n")).trim().slice(0, 2000);
   if (action === "note") {
+    if (row.status === "claimed") return redirect(`/admin/invites#r${id}`);   // a trimmed row takes no note
     await env.DB.prepare("UPDATE invite_requests SET note = ? WHERE id = ?").bind(note || null, id).run();
     return redirect(`/admin/invites#r${id}`);
   }
@@ -165,8 +179,8 @@ export async function onRequestPost(context) {
     if (s && !SLUG_RE.test(s)) return refused(400);
     slug = s || null;
   }
-  const sets = ["status = ?", "status_changed_at = ?", "note = ?"];
-  const args = [t.to, nowIso, note || null];
+  const sets = t.trim ? ["status = ?", "status_changed_at = ?", TRIM_SET] : ["status = ?", "status_changed_at = ?", "note = ?"];
+  const args = t.trim ? [t.to, nowIso] : [t.to, nowIso, note || null];
   if (t.stamp) { sets.push(`${t.stamp} = ?`); args.push(nowIso); }
   if (action === "approve") { sets.push("slug = COALESCE(?, slug)"); args.push(slug); }
   await env.DB.prepare(`UPDATE invite_requests SET ${sets.join(", ")} WHERE id = ? AND status = ?`)

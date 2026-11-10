@@ -484,3 +484,51 @@ test("cohort: a request from the personal link is 'private', every other 'public
   await post(db, validFields({ referral: "bob" }), { ip: "198.51.100.142" });
   assert.deepEqual(rows(db).map((r) => [r.referral, r.cohort]), [["allen", "private"], [null, "public"], [null, "public"]]);
 });
+
+// ---------- retention (Allen 11-10, "Yes, 90 days") ----------
+test("Mark claimed trims the row to id, cohort, status and dates in the same update; the page shows only those", async () => {
+  const db = await seeded();
+  const jwt = await makeJwt({});
+  await adminPost(db, { id: "1", action: "approve", slug: "ann-s", note: "n" }, { jwt });
+  await adminPost(db, { id: "1", action: "claimed" }, { jwt });
+  assert.equal(rows(db)[0].status, "approved", "claimed only from invited");
+  await adminPost(db, { id: "1", action: "invited" }, { jwt });
+  const before = rows(db)[0];
+  await adminPost(db, { id: "1", action: "claimed" }, { jwt });
+  const r = rows(db)[0];
+  assert.equal(r.status, "claimed");
+  for (const c of ["first_name", "last_name", "email", "company", "role", "has_assistant", "email_provider", "phone",
+    "timezone", "about", "referral", "slug", "note"]) assert.equal(r[c], null, c);
+  assert.equal(r.cohort, "private");
+  for (const c of ["id", "created_at", "privacy_agreed_at", "approved_at", "invited_at"]) assert.equal(r[c], before[c], c);
+  assert.equal(r.status_changed_at, new Date(NOW).toISOString());
+  assert.deepEqual(rows(db)[1].first_name, "Ben", "the other row untouched");
+  await adminPost(db, { id: "1", action: "note", note: "late" }, { jwt });
+  assert.equal(rows(db)[0].note, null, "a trimmed row takes no note");
+  const page = await adminGet(db, { jwt, query: "?show=claimed" });
+  assert.ok(page.body.includes("trimmed") && !page.body.includes("Ann") && !page.body.includes("example.com"));
+});
+
+test("schema: a claimed row cannot hold request data, and an unclaimed row must", () => {
+  const db = makeD1();
+  const ins = "INSERT INTO invite_requests (created_at, first_name, last_name, email, company, role, has_assistant, email_provider, phone, about, cohort, privacy_agreed_at, status) VALUES ('t','A','B','a@b.co','C','R','yes','google','iphone','x','public','t', ?)";
+  assert.throws(() => db.raw.prepare(ins).run("claimed"), /CHECK/);
+  db.raw.prepare(ins).run("invited");
+  assert.throws(() => db.raw.prepare("UPDATE invite_requests SET status='claimed' WHERE id=1").run(), /CHECK/);
+  assert.throws(() => db.raw.prepare("UPDATE invite_requests SET about=NULL WHERE id=1").run(), /CHECK/);
+});
+
+test("expired and not-now rows are deleted 90 days after that status; claimed and others kept", async () => {
+  const db = await seeded();
+  const jwt = await makeJwt({});
+  for (let i = 0; i < 3; i++) await post(db, validFields({ first_name: "X" + i }), { ip: "198.51.100." + (150 + i) });
+  const old = new Date(NOW - 91 * 86400000).toISOString(), recent = new Date(NOW - 89 * 86400000).toISOString();
+  db.raw.prepare("UPDATE invite_requests SET status='expired', status_changed_at=? WHERE id=1").run(old);
+  db.raw.prepare("UPDATE invite_requests SET status='expired', status_changed_at=? WHERE id=2").run(recent);
+  db.raw.prepare("UPDATE invite_requests SET status='invited', status_changed_at=? WHERE id=3").run(old);
+  db.raw.prepare("UPDATE invite_requests SET status='not_now', status_changed_at=? WHERE id=4").run(old);
+  await adminGet(db, { jwt });
+  assert.deepEqual(rows(db).map((r) => r.id), [2, 3, 5]);
+  await adminPost(db, { id: "3", action: "expired" }, { jwt });
+  assert.equal(rows(db).find((r) => r.id === 3).status, "expired");
+});

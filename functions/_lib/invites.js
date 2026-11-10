@@ -5,7 +5,12 @@
 export const ABOUT_MAX = 1000;                 // "Tell us about you and your business" (Allen 11-10)
 export const RATE_LIMIT_PER_DAY = 5;           // per salted IP hash per UTC day (spec §A)
 export const RATE_KEEP_DAYS = 7;               // salted hashes are dropped after 7 days (spec §A)
-export const NOT_NOW_KEEP_DAYS = 90;           // "not now" requests are deleted after 90 days (spec §A Retention)
+export const NOT_NOW_KEEP_DAYS = 90;           // "not now" and expired requests are deleted 90 days after that status
+// Allen 11-10 ("Yes, 90 days"): once the customer is live (claimed) a request keeps only id, cohort, status and
+// dates. TRIM_SET nulls everything else; the schema's table CHECK refuses a claimed row that still holds any of it.
+export const TRIMMED_COLUMNS = ["first_name", "last_name", "email", "company", "role", "has_assistant",
+  "email_provider", "phone", "timezone", "about", "referral", "slug", "note"];
+export const TRIM_SET = TRIMMED_COLUMNS.map((c) => `${c} = NULL`).join(", ");
 export const MIN_FILL_MS = 2000;               // a form filled faster than this is a bot (spec §A)
 export const REFERRALS = ["allen"];            // bervo.ai/invite?from=allen -> "personal invite" (display only)
 export const PROVIDERS = ["google", "microsoft", "other"];   // onboarding.py's account providers
@@ -103,7 +108,7 @@ export async function countRequest(db, salt, ip, nowMs) {
 export async function pruneOld(db, nowMs) {
   await db.prepare("DELETE FROM invite_rate WHERE day < ?").bind(utcDay(nowMs, -RATE_KEEP_DAYS)).run();
   const cutoff = new Date(nowMs - NOT_NOW_KEEP_DAYS * 86400000).toISOString();
-  await db.prepare("DELETE FROM invite_requests WHERE status = 'not_now' AND status_changed_at < ?")
+  await db.prepare("DELETE FROM invite_requests WHERE status IN ('not_now', 'expired') AND status_changed_at < ?")
     .bind(cutoff).run();
 }
 
