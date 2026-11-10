@@ -12,11 +12,27 @@
 // orchestrator reads an approved row with tools/tenant/invite_to_profile.py (daily-dashboard).
 import { checkAccess, escapeHtml, pruneOld, redirect, SLUG_RE, stripFormatChars, TRIM_SET } from "../_lib/invites.js";
 
-// [GTM] The invite email Allen copies and sends himself (v1, no mail provider). GTM replaces this text.
-// {first_name} and {link} are filled in on the page; the link is pasted by Allen into the box on the page
-// and never leaves his browser (it is not sent to this server or stored in D1).
-export const INVITE_EMAIL_TEMPLATE =
-  "[GTM: invite email subject]\n\n[GTM: invite email greeting] {first_name},\n\n[GTM: invite email body]\n\n{link}\n\n[GTM: invite email sign-off]";
+// The invite email Allen copies and sends himself (v1, no mail provider). Words: daily-dashboard
+// docs/marketing/site/INVITE_FORM_COPY_V1.md §5 (approved by Allen 11-10). {first_name} and {link} are filled in on
+// the page; the link is pasted by Allen into the box on the page and never leaves his browser (not sent to this
+// server, not stored in D1).
+export const INVITE_EMAIL_SUBJECT = "Your Bervo invite";
+export const INVITE_EMAIL_TEMPLATE = [
+  "Hi {first_name},",
+  "",
+  "Thanks for requesting an invite to Bervo. I'm glad to have you.",
+  "",
+  "Here's your personal setup link:",
+  "{link}",
+  "",
+  "It works once and stays open for 14 days. Setup takes you through connecting your email, choosing how much " +
+    "history to load, adding your AI API key and texting the Bervo line. Stopped partway? Sign in with your email " +
+    "and password and you'll pick up where you left off.",
+  "",
+  "Any questions, just reply to this email.",
+  "",
+  "Allen",
+].join("\n");
 
 const TRANSITIONS = {
   approve: { to: "approved", from: ["new", "not_now"], stamp: "approved_at" },
@@ -93,7 +109,8 @@ ${slugField}
 </form>
 ${r.status === "approved" || r.status === "invited" ? `<div class="copy" data-first="${e(r.first_name)}">
 <label>Owner link (paste it here; it stays in this browser) <input class="link" type="url" autocomplete="off"></label>
-<textarea class="mail" readonly rows="8"></textarea>
+<p>Subject: <b>${e(INVITE_EMAIL_SUBJECT)}</b></p>
+<textarea class="mail" readonly rows="12"></textarea>
 <button type="button" class="copybtn">Copy invite email</button> <span class="copied"></span>
 </div>` : ""}
 </article>`;

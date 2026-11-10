@@ -390,12 +390,50 @@ test("'not now' rows are deleted 90 days after the decision; others kept", async
   assert.deepEqual(rows(db).map((r) => r.id), [2]);
 });
 
-test("the invite email template is a [GTM] placeholder and the owner link never reaches the server", async () => {
-  assert.match(admin.INVITE_EMAIL_TEMPLATE, /\[GTM/);
-  assert.match(admin.INVITE_EMAIL_TEMPLATE, /\{link\}/);
+test("the invite email is the approved copy and the owner link never reaches the server", async () => {
+  assert.equal(admin.INVITE_EMAIL_SUBJECT, "Your Bervo invite");
+  assert.ok(admin.INVITE_EMAIL_TEMPLATE.startsWith("Hi {first_name},\n\nThanks for requesting an invite to Bervo. I'm glad to have you."));
+  assert.match(admin.INVITE_EMAIL_TEMPLATE, /Here's your personal setup link:\n\{link\}\n/);
+  assert.match(admin.INVITE_EMAIL_TEMPLATE, /It works once and stays open for 14 days\./);
+  assert.ok(admin.INVITE_EMAIL_TEMPLATE.endsWith("Any questions, just reply to this email.\n\nAllen"));
+  assert.ok(!/\[GTM/.test(admin.INVITE_EMAIL_TEMPLATE));
   const src = readFileSync(path.join(ROOT, "functions/admin/invites.js"), "utf8");
   // the link input has no name attribute (so it is never submitted) and sits outside every <form>
   assert.match(src, /<input class="link" type="url" autocomplete="off">/);
+});
+
+test("approved copy on the page (INVITE_FORM_COPY_V1 §1-4): labels, radios, help, counter, errors; no placeholders left", () => {
+  const html = readFileSync(path.join(ROOT, "invite.html"), "utf8");
+  const js = readFileSync(path.join(ROOT, "invite.js"), "utf8");
+  const thanks = readFileSync(path.join(ROOT, "invite-thanks.html"), "utf8");
+  for (const f of ["invite.html", "invite.js", "invite-thanks.html", "invite-thanks.js", "functions/admin/invites.js"]) {
+    assert.ok(!/\[GTM/.test(readFileSync(path.join(ROOT, f), "utf8")), f + " still has a [GTM] placeholder");
+  }
+  for (const t of ["Privacy First. Business First.", "<h1>Request an invite</h1>",
+    "Bervo is built for business owners and executives. Tell us a little about yourself and we'll be in touch, usually within two business days.",
+    ">Preferred email<", "The address you'd like to sign in with.", ">Your role<", "For example: owner, CEO, managing partner.",
+    "<legend>Do you have an assistant?</legend>", "Your assistant can have their own sign-in to Bervo.",
+    "<legend>Where is your email?</legend>", "Google (Gmail or Google Workspace)", "Microsoft 365 or Exchange",
+    "<legend>Which phone do you use?</legend>", "Tell us about you and your business",
+    "You can also ask any question here.</span><textarea", ">0 of 1,000<", ">Request an Invite</button>",
+    "We couldn't send your request. Please check your connection and try again."]) assert.ok(html.includes(t), t);
+  assert.ok(!/work email/i.test(html), "nothing on screen says work email");
+  const radios = (name) => [...html.matchAll(new RegExp(`<label><input type="radio" name="${name}" value="([a-z]+)"`, "g"))].map((m) => m[1]);
+  assert.deepEqual(radios("has_assistant"), ["yes", "no"]);
+  assert.deepEqual(radios("email_provider"), ["google", "microsoft", "other"]);
+  assert.deepEqual(radios("phone"), ["iphone", "android"]);
+  assert.ok(!/approval from your email admin|small print/i.test(html), "no Microsoft small print on this form");
+  for (const t of ["Please fill this in.", "Please enter a full email address, like name@company.com.", "Please choose one.",
+    "Please keep this to 1,000 characters.", "Please agree to the Privacy Policy to send your request.", "Sending…", " of 1,000"])
+    assert.ok(js.includes(t), t);
+  for (const t of ["We've received your request. We read each one ourselves and will reply by email, usually within two business days.",
+    "In the meantime, see how Bervo works.", '<a href="/why">Why Bervo →</a>']) assert.ok(thanks.includes(t), t);
+  const tjs = readFileSync(path.join(ROOT, "invite-thanks.js"), "utf8");
+  assert.match(tjs, /textContent = "Thanks, " \+ n \+ "\."/);
+  assert.ok(!/innerHTML/.test(tjs + js), "names never go in as markup");
+  // the first name travels in sessionStorage, never in the redirect address
+  const handler = readFileSync(path.join(ROOT, "functions/api/invite.js"), "utf8");
+  assert.ok(!/invite-thanks\?/.test(handler));
 });
 
 // ---------- headers ----------
@@ -413,6 +451,12 @@ test("_headers: /invite gets its own CSP (old one detached); every other page ke
   assert.match(inv, /frame-src https:\/\/challenges\.cloudflare\.com/);
   assert.match(inv, /connect-src 'self'/);
   assert.equal((h.match(/form-action 'self'/g) || []).length, 1, "only /invite may post");
+  const ty = blocks.find((b) => b.startsWith("/invite-thanks\n"));
+  assert.ok(ty, "an /invite-thanks block");
+  assert.match(ty, /^\s+! Content-Security-Policy$/m);
+  assert.match(ty, /script-src 'self';/);
+  assert.match(ty, /form-action 'none'/);
+  assert.ok(!/challenges\.cloudflare\.com|connect-src/.test(ty));
 });
 
 test("validateInvite unit: trims, lowercases email, strips control characters", () => {
@@ -469,7 +513,7 @@ test("bidi, zero-width and other format characters are stripped from every text 
 test("non-site files live under functions/ (Pages does not serve that directory); nothing extra at the root", () => {
   const root = readdirSync(ROOT).filter((n) => !n.startsWith(".git"));
   const allowed = new Set(["404.html", "_headers", "_redirects", "download", "functions", "index.html", "invite-thanks.html",
-    "invite.html", "invite.js", "privacy.html", "terms.html", ".well-known"]);
+    "invite.html", "invite.js", "invite-thanks.js", "privacy.html", "terms.html", ".well-known"]);
   assert.deepEqual(root.filter((n) => !allowed.has(n)), [], "unexpected files at the served root");
   for (const f of ["functions/_lib/invites.js", "functions/_dev/tests/invite.test.js"]) {
     const src = readFileSync(path.join(ROOT, f), "utf8");
