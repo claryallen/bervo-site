@@ -46,11 +46,16 @@
   }
 
   // Turnstile: the site key comes from /api/invite-config so the page needs no edit per environment.
+  // The button looks normal from the start and nothing red shows at load. If Turnstile is not ready (config
+  // missing, script blocked, or no token yet) a press shows the could-not-send line and sends nothing:
+  // without a Turnstile token no request is ever sent (and the server refuses one anyway).
   var submit = document.getElementById("submit");
-  submit.disabled = true;
+  var ready = false;
   form.addEventListener("submit", function (ev) {
     sendErr.hidden = true;
     if (!validate()) { ev.preventDefault(); return; }
+    var tok = form.querySelector('[name="cf-turnstile-response"]');
+    if (!ready || !tok || !tok.value) { ev.preventDefault(); sendErr.hidden = false; return; }
     // The thank-you screen greets by first name; kept in this tab only, never in the address.
     try { window[["session", "Storage"].join("")].setItem("bervo-invite-first", document.getElementById("first_name").value.trim().slice(0, 80)); } catch (e) {}
     submit.disabled = true;
@@ -58,14 +63,13 @@
   });
   window.bervoTurnstileReady = function () {
     fetch("/api/invite-config", { credentials: "same-origin" }).then(function (r) { return r.json(); }).then(function (c) {
-      if (!c || !c.site_key) { sendErr.hidden = false; return; }
+      if (!c || !c.site_key) return;                 // not configured: fail closed, quietly until a press
       window.turnstile.render("#turnstile", { sitekey: c.site_key, action: "invite" });
-      submit.disabled = false;
-    }).catch(function () { sendErr.hidden = false; });
+      ready = true;
+    }).catch(function () {});
   };
   var s = document.createElement("script");
   s.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit&onload=bervoTurnstileReady";
   s.async = true; s.defer = true;
-  s.onerror = function () { sendErr.hidden = false; };
   document.head.appendChild(s);
 })();

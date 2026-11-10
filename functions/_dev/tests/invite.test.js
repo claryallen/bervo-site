@@ -576,3 +576,112 @@ test("expired and not-now rows are deleted 90 days after that status; claimed an
   await adminPost(db, { id: "3", action: "expired" }, { jwt });
   assert.equal(rows(db).find((r) => r.id === 3).status, "expired");
 });
+
+// ---------- /invite page script: nothing red at load, fail closed on press (GTM check of preview 0d44c1b0) ----------
+import vm from "node:vm";
+
+function pageSandbox({ config, search = "" }) {
+  const els = {};
+  const mk = (id, extra = {}) => (els[id] = { id, value: "", hidden: false, disabled: false, textContent: "", checked: false,
+    listeners: {}, addEventListener(t, f) { this.listeners[t] = f; }, closest() { return errHolder(id); }, ...extra });
+  const errs = {};
+  const errHolder = (id) => ({ querySelector: () => (errs[id] ||= { textContent: "" }) });
+  for (const id of ["t", "tz", "referral", "first_name", "last_name", "email", "company", "role", "about", "about-count",
+    "privacy", "privacy-err", "submit", "fs-has_assistant", "fs-email_provider", "fs-phone"]) mk(id);
+  mk("send-err", { hidden: true });            // the page ships it with the hidden attribute
+  let token = null;
+  const radios = {};
+  const form = mk("invite-form", {
+    querySelector(sel) {
+      if (sel.includes("cf-turnstile-response")) return token;
+      const m = sel.match(/name=(\w+)\]:checked/);
+      return m && radios[m[1]] ? {} : null;
+    },
+  });
+  const scripts = [];
+  const window = {};
+  const document = {
+    getElementById: (id) => els[id] || null,
+    createElement: () => ({}),
+    head: { appendChild: (s) => scripts.push(s) },
+  };
+  window.turnstile = { render: () => { token = { value: "tok" }; } };
+  const fetch = async () => ({ json: async () => (config ? { site_key: "0x4AAAAAAA" } : { unavailable: true }) });
+  const ctx = { window, document, location: { search }, URLSearchParams, Intl, Date, String, fetch };
+  window.document = document;
+  vm.createContext(ctx);
+  vm.runInContext(readFileSync(path.join(ROOT, "invite.js"), "utf8"), ctx);
+  return { els, errs, form, radios, scripts, window, fill() {
+    for (const id of ["first_name", "last_name", "company", "role", "about"]) els[id].value = "x";
+    els.email.value = "a@b.co"; els.privacy.checked = true;
+    Object.assign(radios, { has_assistant: 1, email_provider: 1, phone: 1 });
+  } };
+}
+async function loadTurnstile(p) {           // the Turnstile script's onload callback, then let fetch settle
+  await p.window.bervoTurnstileReady();
+  await new Promise((r) => setTimeout(r, 0));
+}
+function press(p) {
+  let prevented = false;
+  p.els["invite-form"].listeners.submit({ preventDefault() { prevented = true; } });
+  return prevented;
+}
+
+test("at load nothing red shows and the button is normal, with and without config", async () => {
+  for (const config of [true, false]) {
+    const p = pageSandbox({ config });
+    assert.equal(p.els["send-err"].hidden, true, `before Turnstile loads (config=${config})`);
+    assert.equal(p.els.submit.disabled, false);
+    await loadTurnstile(p);
+    assert.equal(p.els["send-err"].hidden, true, `after config answered (config=${config})`);
+    assert.equal(p.els.submit.disabled, false, `button normal (config=${config})`);
+    assert.equal(p.els.submit.textContent, "");    // the label stays whatever the page says
+  }
+  const html = readFileSync(path.join(ROOT, "invite.html"), "utf8");
+  assert.match(html, /<p class="err" id="send-err" hidden>/);
+  assert.match(html, /\[hidden\]\{display:none!important\}/);
+  assert.ok(!/<button type="submit" id="submit" disabled/.test(html));
+});
+
+test("no config: a complete form pressed sends nothing and shows the could-not-send line (fails closed)", async () => {
+  const p = pageSandbox({ config: false });
+  await loadTurnstile(p);
+  p.fill();
+  assert.equal(press(p), true, "submit prevented");
+  assert.equal(p.els["send-err"].hidden, false, "error shown on press");
+  assert.equal(p.els.submit.textContent, "", "not switched to Sending…");
+});
+
+test("config present: a complete form pressed is sent, 'Sending…'; an incomplete one shows field errors only", async () => {
+  const p = pageSandbox({ config: true });
+  await loadTurnstile(p);
+  assert.equal(press(p), true, "empty form prevented");
+  assert.equal(p.els["send-err"].hidden, true, "field errors, not the send line");
+  assert.equal(p.errs.first_name.textContent, "Please fill this in.");
+  p.fill();
+  assert.equal(press(p), false, "sent");
+  assert.equal(p.els.submit.textContent, "Sending…");
+  assert.equal(p.els["send-err"].hidden, true);
+});
+
+test("after a server refusal (?e=retry) the line shows: that is a failed send", () => {
+  const p = pageSandbox({ config: true, search: "?e=retry" });
+  assert.equal(p.els["send-err"].hidden, false);
+});
+
+test("/invite and /invite-thanks: only same-origin script files, no inline script or handlers", () => {
+  for (const f of ["invite.html", "invite-thanks.html"]) {
+    const html = readFileSync(path.join(ROOT, f), "utf8");
+    const tags = [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/g)];
+    assert.equal(tags.length, 1, f);
+    assert.match(tags[0][1], /^ src="\/invite(-thanks)?\.js"$/, f);
+    assert.equal(tags[0][2].trim(), "", f + ": no inline code");
+    assert.ok(!/\son[a-z]+=/i.test(html), f + ": no inline event handlers");
+    assert.ok(!/javascript:/i.test(html), f);
+  }
+  const h = readFileSync(path.join(ROOT, "_headers"), "utf8");
+  const ty = h.split(/\n(?=\/)/).find((b) => b.startsWith("/invite-thanks\n"));
+  const csp = ty.match(/Content-Security-Policy: (.*)/)[1];
+  assert.equal(csp.match(/script-src [^;]*/)[0], "script-src 'self'");
+  assert.ok(!/unsafe-inline'[^;]*;?\s*$/.test(csp.match(/script-src [^;]*/)[0]) && !/nonce|unsafe-eval|https?:/.test(csp));
+});
