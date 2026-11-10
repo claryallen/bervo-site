@@ -10,7 +10,7 @@
 //
 // Approve / Not now / Mark invited / the note change ONLY the D1 row. Nothing here touches a server; the
 // orchestrator reads an approved row with tools/tenant/invite_to_profile.py (daily-dashboard).
-import { checkAccess, escapeHtml, pruneOld, redirect, SLUG_RE } from "../../functions-lib/invites.js";
+import { checkAccess, escapeHtml, pruneOld, redirect, SLUG_RE, stripFormatChars } from "../_lib/invites.js";
 
 // [GTM] The invite email Allen copies and sends himself (v1, no mail provider). GTM replaces this text.
 // {first_name} and {link} are filled in on the page; the link is pasted by Allen into the box on the page
@@ -151,7 +151,7 @@ export async function onRequestPost(context) {
   const row = await env.DB.prepare("SELECT id, status FROM invite_requests WHERE id = ?").bind(id).first();
   if (!row) return refused(404);
   const nowIso = new Date(context.nowMs ?? Date.now()).toISOString();
-  const note = String(form.get("note") ?? "").replace(/\r\n?/g, "\n").slice(0, 2000);
+  const note = stripFormatChars(String(form.get("note") ?? "").replace(/\r\n?/g, "\n")).trim().slice(0, 2000);
   if (action === "note") {
     await env.DB.prepare("UPDATE invite_requests SET note = ? WHERE id = ?").bind(note || null, id).run();
     return redirect(`/admin/invites#r${id}`);

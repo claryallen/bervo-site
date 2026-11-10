@@ -13,6 +13,13 @@ export const PHONES = ["iphone", "android"];                 // onboarding.PHONE
 export const YES_NO = ["yes", "no"];
 export const STATUSES = ["new", "approved", "not_now", "invited", "claimed", "expired"];
 export const MAX_BODY_BYTES = 16384;
+// Hostnames a Turnstile token may come from (siteverify's `hostname`). TURNSTILE_HOSTNAMES (a Pages variable,
+// comma-separated) replaces this list, e.g. for a local run with Cloudflare's public test keys ("example.com").
+export const TURNSTILE_HOSTNAMES = ["bervo.ai", "invite-form.bervo-site.pages.dev"];
+// Invisible/format characters (Unicode Cf: bidi overrides U+202A-202E and isolates U+2066-2069, zero-width
+// U+200B-200F, BOM U+FEFF, soft hyphen ...) are removed from every text field before it is stored, so nothing
+// on the admin page or in a profile can read differently from what it is.
+const FORMAT_CHARS = /\p{Cf}/gu;
 
 // Same rule as tools/tenant/provision_profile.py ACCESS_EMAIL_RE (applied to the lowercased address), so
 // every stored address is one the provisioner accepts as the customer's Cloudflare Access email.
@@ -31,7 +38,7 @@ export function escapeHtml(v) {
 function clean(v, multiline = false) {
   if (typeof v !== "string") return "";
   const re = multiline ? /[\u0000-\u0009\u000B\u000C\u000E-\u001F\u007F]/g : /[\u0000-\u001F\u007F]/g;
-  let s = v.normalize("NFC").replace(/\r\n?/g, "\n").replace(re, "");
+  let s = v.normalize("NFC").replace(/\r\n?/g, "\n").replace(re, "").replace(FORMAT_CHARS, "");
   return s.trim();
 }
 
@@ -100,8 +107,11 @@ export async function pruneOld(db, nowMs) {
     .bind(cutoff).run();
 }
 
+export function stripFormatChars(v) { return String(v ?? "").replace(FORMAT_CHARS, ""); }
+
 // Turnstile server-side check. -> "pass" | "fail" | "error" (could not reach Cloudflare).
-export async function verifyTurnstile(token, secret, ip, fetchImpl = fetch) {
+// Passes only when success is true, the action is exactly "invite" and the hostname is on the allowlist.
+export async function verifyTurnstile(token, secret, ip, fetchImpl = fetch, hostnames = TURNSTILE_HOSTNAMES) {
   if (typeof token !== "string" || !token || token.length > 4096) return "fail";
   const body = new FormData();
   body.append("secret", secret);
@@ -116,17 +126,22 @@ export async function verifyTurnstile(token, secret, ip, fetchImpl = fetch) {
   if (!res.ok) return "error";
   let out;
   try { out = await res.json(); } catch { return "error"; }
-  if (out && out.success === true && (!out.action || out.action === "invite")) return "pass";
+  const hosts = (hostnames || []).map((h) => String(h).toLowerCase());
+  if (out && out.success === true && out.action === "invite" &&
+      typeof out.hostname === "string" && hosts.includes(out.hostname.toLowerCase())) return "pass";
   return "fail";
 }
+
+// Allen 11-10: a request from his personal link (referral 'allen') is the private beta; every other is public.
+export function cohortFor(referral) { return referral === "allen" ? "private" : "public"; }
 
 export async function insertInvite(db, v, nowIso) {
   return db.prepare(
     "INSERT INTO invite_requests (created_at, first_name, last_name, email, company, role, has_assistant, " +
     "email_provider, phone, timezone, about, referral, cohort, privacy_agreed_at, status, status_changed_at) " +
-    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'public', ?, 'new', ?)"
+    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', ?)"
   ).bind(nowIso, v.first_name, v.last_name, v.email, v.company, v.role, v.has_assistant, v.email_provider,
-    v.phone, v.timezone, v.about, v.referral, nowIso, nowIso).run();
+    v.phone, v.timezone, v.about, v.referral, cohortFor(v.referral), nowIso, nowIso).run();
 }
 
 // ---------- Cloudflare Access JWT (defence in depth behind the Access application) ----------

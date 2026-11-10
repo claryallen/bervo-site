@@ -1,20 +1,20 @@
 // Tests for the invite form handler and the admin page (CR-INVITEFLOW.1 part A, spec "Proving it" 1–2).
-// Run: node --experimental-default-type=module --test site-dev/tests/   (Node 22+, no packages needed)
-// D1 is mocked over node:sqlite with the real schema in site-dev/migrations/.
+// Run: node --experimental-default-type=module --test functions/_dev/tests/invite.test.js   (Node 22+, no packages)
+// D1 is mocked over node:sqlite with the real schema in functions/_dev/migrations/.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
-import * as invite from "../../functions/api/invite.js";
-import * as config from "../../functions/api/invite-config.js";
-import * as admin from "../../functions/admin/invites.js";
-import { _resetAccessKeyCache, ABOUT_MAX, escapeHtml, validateInvite } from "../../functions-lib/invites.js";
+import * as invite from "../../api/invite.js";
+import * as config from "../../api/invite-config.js";
+import * as admin from "../../admin/invites.js";
+import { _resetAccessKeyCache, ABOUT_MAX, escapeHtml, stripFormatChars, validateInvite } from "../../_lib/invites.js";
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-const SCHEMA = readFileSync(path.join(ROOT, "site-dev/migrations/0001_invite_requests.sql"), "utf8");
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
+const SCHEMA = readFileSync(path.join(ROOT, "functions/_dev/migrations/0001_invite_requests.sql"), "utf8");
 const NOW = Date.parse("2026-11-12T15:00:00Z");
 const ORIGIN = "https://bervo.ai";
 const TEAM = "bervo.cloudflareaccess.com";
@@ -51,7 +51,15 @@ function turnstileFetch(mode = "pass", calls = []) {
     if (mode === "http500") return new Response("x", { status: 500 });
     const token = init.body.get("response");
     const ok = mode === "pass" && token === "good-token";
-    return Response.json({ success: ok, action: mode === "wrong-action" ? "login" : "invite" });
+    const body = { success: ok, action: "invite", hostname: "bervo.ai" };
+    if (mode === "wrong-action") body.action = "login";
+    if (mode === "no-action") delete body.action;
+    if (mode === "wrong-host") body.hostname = "evil.example";
+    if (mode === "no-host") delete body.hostname;
+    if (mode === "preview-host") body.hostname = "invite-form.bervo-site.pages.dev";
+    if (mode === "test-host") body.hostname = "example.com";
+    if (mode.startsWith("wrong") || mode.startsWith("no-") || mode.endsWith("-host")) body.success = token === "good-token";
+    return Response.json(body);
   };
 }
 
@@ -412,4 +420,67 @@ test("validateInvite unit: trims, lowercases email, strips control characters", 
   assert.ok(r.ok);
   assert.equal(r.value.first_name, "Pat");
   assert.equal(r.value.email, "pat@example.com");
+});
+
+// ---------- fix round 1 ----------
+test("Turnstile: action must be exactly 'invite' and hostname on the allowlist", async () => {
+  const db = makeD1();
+  let i = 0;
+  for (const mode of ["no-action", "wrong-action", "wrong-host", "no-host", "test-host"]) {
+    const r = await post(db, validFields(), { mode, ip: "198.51.100." + (100 + i++) });
+    assert.equal(r.location, "/invite-thanks", mode);
+  }
+  assert.equal(rows(db).length, 0, "none stored");
+  assert.equal((await post(db, validFields(), { mode: "preview-host", ip: "198.51.100.120" })).location, "/invite-thanks");
+  assert.equal(rows(db).length, 1, "the preview host is allowed");
+  // TURNSTILE_HOSTNAMES replaces the list (local runs with Cloudflare's test keys report example.com)
+  const env = { ...ENV(db), TURNSTILE_HOSTNAMES: "example.com" };
+  await post(db, validFields(), { mode: "test-host", ip: "198.51.100.121", env });
+  assert.equal(rows(db).length, 2);
+  await post(db, validFields(), { mode: "pass", ip: "198.51.100.122", env });
+  assert.equal(rows(db).length, 2, "bervo.ai not allowed when the override names only example.com");
+});
+
+test("bidi, zero-width and other format characters are stripped from every text field", async () => {
+  const db = makeD1();
+  const cf = ["\u202A", "\u202B", "\u202C", "\u202D", "\u202E", "\u2066", "\u2067", "\u2068", "\u2069",
+    "\u200B", "\u200C", "\u200D", "\u200E", "\u200F", "\uFEFF", "\u00AD", "\u2060", "\u061C"].join("");
+  const r = await post(db, validFields({ first_name: "Pa" + cf + "t", last_name: cf + "Sample", company: "Co" + cf,
+    role: "Ow\u202Ener", about: "Hi\u2066 there\u2069" + cf, email: "pat\u200B@example.com", tz: "Europe/\u200BLondon" }), { ip: "198.51.100.130" });
+  assert.equal(r.location, "/invite-thanks");
+  const row = rows(db)[0];
+  assert.equal(row.first_name, "Pat");
+  assert.equal(row.last_name, "Sample");
+  assert.equal(row.company, "Co");
+  assert.equal(row.role, "Owner");
+  assert.equal(row.about, "Hi there");
+  assert.equal(row.email, "pat@example.com");
+  assert.equal(row.timezone, "Europe/London");
+  const all = JSON.stringify(rows(db));
+  assert.ok(!/\p{Cf}/u.test(all), "no format character stored");
+  // a field made only of format characters counts as empty
+  assert.equal((await post(db, validFields({ first_name: cf }), { ip: "198.51.100.131" })).location, "/invite?e=invalid");
+  // the admin note too
+  await adminPost(db, { id: "1", action: "note", note: "ok\u202Eevil" }, { jwt: await makeJwt({}) });
+  assert.equal(rows(db)[0].note, "okevil");
+  assert.equal(stripFormatChars("a\u200Bb"), "ab");
+});
+
+test("non-site files live under functions/ (Pages does not serve that directory); nothing extra at the root", () => {
+  const root = readdirSync(ROOT).filter((n) => !n.startsWith(".git"));
+  const allowed = new Set(["404.html", "_headers", "_redirects", "download", "functions", "index.html", "invite-thanks.html",
+    "invite.html", "invite.js", "privacy.html", "terms.html", ".well-known"]);
+  assert.deepEqual(root.filter((n) => !allowed.has(n)), [], "unexpected files at the served root");
+  for (const f of ["functions/_lib/invites.js", "functions/_dev/tests/invite.test.js"]) {
+    const src = readFileSync(path.join(ROOT, f), "utf8");
+    assert.ok(!/export\s+(async\s+)?(function|const|let)\s+onRequest/.test(src), `${f} must not define a route`);
+  }
+});
+
+test("cohort: a request from the personal link is 'private', every other 'public'", async () => {
+  const db = makeD1();
+  await post(db, validFields({ referral: "allen" }), { ip: "198.51.100.140" });
+  await post(db, validFields({ referral: "" }), { ip: "198.51.100.141" });
+  await post(db, validFields({ referral: "bob" }), { ip: "198.51.100.142" });
+  assert.deepEqual(rows(db).map((r) => [r.referral, r.cohort]), [["allen", "private"], [null, "public"], [null, "public"]]);
 });
