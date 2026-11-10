@@ -63,6 +63,14 @@ function refused(status) {
 
 function fmt(iso) { return iso ? escapeHtml(String(iso).replace("T", " ").slice(0, 16) + " UTC") : ""; }
 
+const PLAN_NAMES = { standard: "Standard $49/mo", private: "Private $99/mo" };
+const PROVIDER_NAMES = { google: "Google", microsoft: "Microsoft 365 or Exchange", other: "Other" };
+function providerList(json) {
+  let list;
+  try { list = JSON.parse(json || "[]"); } catch { return String(json || ""); }
+  return Array.isArray(list) ? list.map((x) => PROVIDER_NAMES[x] || String(x)).join(", ") : String(json);
+}
+
 function renderRow(r) {
   const e = escapeHtml;
   const personal = r.referral === "allen" ? ` <span class="badge">Personal invite</span>` : "";
@@ -76,8 +84,8 @@ function renderRow(r) {
   if (TRANSITIONS.expired.from.includes(r.status)) actions.push(btn("expired", "Mark expired"));
   if (r.status === "claimed") {
     return `<article class="req" id="r${e(r.id)}"><h2>#${e(r.id)} · <span class="status s-claimed">claimed</span></h2>
-<p>Customer is live; this request was trimmed to its number, cohort and dates.</p>
-<dl><dt>Received</dt><dd>${fmt(r.created_at)}</dd><dt>Cohort</dt><dd>${e(r.cohort)}</dd>
+<p>Customer is live; this request was trimmed to its number, cohort, plan and dates.</p>
+<dl><dt>Received</dt><dd>${fmt(r.created_at)}</dd><dt>Cohort</dt><dd>${e(r.cohort)}</dd><dt>Plan</dt><dd>${e(PLAN_NAMES[r.plan] || r.plan)}</dd>
 ${r.approved_at ? `<dt>Approved</dt><dd>${fmt(r.approved_at)}</dd>` : ""}${r.invited_at ? `<dt>Invited</dt><dd>${fmt(r.invited_at)}</dd>` : ""}
 <dt>Claimed</dt><dd>${fmt(r.status_changed_at)}</dd></dl></article>`;
   }
@@ -91,8 +99,9 @@ ${r.approved_at ? `<dt>Approved</dt><dd>${fmt(r.approved_at)}</dd>` : ""}${r.inv
 <dt>Company</dt><dd>${e(r.company)}</dd>
 <dt>Role</dt><dd>${e(r.role)}</dd>
 <dt>Has an assistant</dt><dd>${e(r.has_assistant)}</dd>
-<dt>Email provider</dt><dd>${e(r.email_provider)}</dd>
+<dt>Email provider(s)</dt><dd>${e(providerList(r.email_providers))}</dd>
 <dt>Phone</dt><dd>${e(r.phone)}</dd>
+<dt>Plan</dt><dd>${e(PLAN_NAMES[r.plan] || r.plan)}</dd>
 <dt>Time zone</dt><dd>${e(r.timezone || "(not sent)")}</dd>
 <dt>Cohort</dt><dd>${e(r.cohort)}</dd>
 ${r.slug ? `<dt>Slug</dt><dd>${e(r.slug)}</dd>` : ""}

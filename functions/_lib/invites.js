@@ -7,13 +7,14 @@ export const RATE_LIMIT_PER_DAY = 5;           // per salted IP hash per UTC day
 export const RATE_KEEP_DAYS = 7;               // salted hashes are dropped after 7 days (spec §A)
 export const NOT_NOW_KEEP_DAYS = 90;           // "not now" and expired requests are deleted 90 days after that status
 // Allen 11-10 ("Yes, 90 days"): once the customer is live (claimed) a request keeps only id, cohort, status and
-// dates. TRIM_SET nulls everything else; the schema's table CHECK refuses a claimed row that still holds any of it.
+// dates, plus the plan they chose (like cohort). TRIM_SET nulls everything else; the schema's table CHECK refuses a claimed row that still holds any of it.
 export const TRIMMED_COLUMNS = ["first_name", "last_name", "email", "company", "role", "has_assistant",
-  "email_provider", "phone", "timezone", "about", "referral", "slug", "note"];
+  "email_providers", "phone", "timezone", "about", "referral", "slug", "note"];
 export const TRIM_SET = TRIMMED_COLUMNS.map((c) => `${c} = NULL`).join(", ");
 export const MIN_FILL_MS = 2000;               // a form filled faster than this is a bot (spec §A)
 export const REFERRALS = ["allen"];            // bervo.ai/invite?from=allen -> "personal invite" (display only)
-export const PROVIDERS = ["google", "microsoft", "other"];   // onboarding.py's account providers
+export const PROVIDERS = ["google", "microsoft", "other"];   // onboarding.py's account providers; stored in this order
+export const PLANS = ["standard", "private"];               // "Which plan would you like?" (Standard listed first)
 export const PHONES = ["iphone", "android"];                 // onboarding.PHONES
 export const YES_NO = ["yes", "no"];
 export const STATUSES = ["new", "approved", "not_now", "invited", "claimed", "expired"];
@@ -55,6 +56,8 @@ export function validTimeZone(tz) {
 // -> { ok: true, value: {...} } or { ok: false, errors: [field, ...] }
 export function validateInvite(form) {
   const get = (k) => (form && typeof form.get === "function" ? form.get(k) : form?.[k]);
+  const getAll = (k) => (form && typeof form.getAll === "function" ? form.getAll(k)
+    : [].concat(form?.[k] ?? []));
   const errors = [];
   const v = {};
   for (const [k, max] of Object.entries(LIMITS)) {
@@ -70,8 +73,12 @@ export function validateInvite(form) {
     v[k] = s;
   };
   pick("has_assistant", YES_NO);
-  pick("email_provider", PROVIDERS);
+  // Email provider(s): checkboxes, at least one; stored as a JSON array in PROVIDERS order (no duplicates).
+  const chosen = new Set(getAll("email_provider").map((x) => clean(x).toLowerCase()));
+  if (!chosen.size || [...chosen].some((x) => !PROVIDERS.includes(x))) errors.push("email_provider");
+  v.email_providers = JSON.stringify(PROVIDERS.filter((x) => chosen.has(x)));
   pick("phone", PHONES);
+  pick("plan", PLANS);
   const about = clean(get("about"), true);
   if (!about || about.length > ABOUT_MAX) errors.push("about");
   v.about = about;
@@ -143,10 +150,10 @@ export function cohortFor(referral) { return referral === "allen" ? "private" : 
 export async function insertInvite(db, v, nowIso) {
   return db.prepare(
     "INSERT INTO invite_requests (created_at, first_name, last_name, email, company, role, has_assistant, " +
-    "email_provider, phone, timezone, about, referral, cohort, privacy_agreed_at, status, status_changed_at) " +
-    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', ?)"
-  ).bind(nowIso, v.first_name, v.last_name, v.email, v.company, v.role, v.has_assistant, v.email_provider,
-    v.phone, v.timezone, v.about, v.referral, cohortFor(v.referral), nowIso, nowIso).run();
+    "email_providers, phone, plan, timezone, about, referral, cohort, privacy_agreed_at, status, status_changed_at) " +
+    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', ?)"
+  ).bind(nowIso, v.first_name, v.last_name, v.email, v.company, v.role, v.has_assistant, v.email_providers,
+    v.phone, v.plan, v.timezone, v.about, v.referral, cohortFor(v.referral), nowIso, nowIso).run();
 }
 
 // ---------- Cloudflare Access JWT (defence in depth behind the Access application) ----------

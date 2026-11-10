@@ -6,6 +6,7 @@
     required: "Please fill this in.",
     email: "Please enter a full email address, like name@company.com.",
     choice: "Please choose one.",
+    choiceAny: "Please choose at least one.",
     tooLong: "Please keep this to 1,000 characters.",
     privacy: "Please agree to the Privacy Policy to send your request."
   };
@@ -17,6 +18,12 @@
   var params = new URLSearchParams(location.search);
   var from = (params.get("from") || "").toLowerCase();
   if (from === "allen") document.getElementById("referral").value = from;
+  // The Pricing page buttons pre-select a plan: ?plan=standard | ?plan=private (allowlisted).
+  var plan = (params.get("plan") || "").toLowerCase();
+  if (plan === "standard" || plan === "private") {
+    var r = form.querySelector('input[name=plan][value="' + plan + '"]');
+    if (r) r.checked = true;
+  }
   var sendErr = document.getElementById("send-err");
   // Back from the server with ?e=invalid|retry|unavailable: one line under the button.
   if (/^(invalid|retry|unavailable)$/.test(params.get("e") || "")) sendErr.hidden = false;
@@ -35,9 +42,9 @@
     });
     var em = document.getElementById("email"), v = em.value.trim();
     ok = set(em, !v ? MSG.required : (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v) ? "" : MSG.email)) && ok;
-    ["has_assistant", "email_provider", "phone"].forEach(function (n) {
+    ["has_assistant", "email_provider", "phone", "plan"].forEach(function (n) {
       var picked = form.querySelector("input[name=" + n + "]:checked");
-      ok = set(document.getElementById("fs-" + n), picked ? "" : MSG.choice) && ok;
+      ok = set(document.getElementById("fs-" + n), picked ? "" : (n === "email_provider" ? MSG.choiceAny : MSG.choice)) && ok;
     });
     ok = set(about, !about.value.trim() ? MSG.required : (about.value.length > 1000 ? MSG.tooLong : "")) && ok;
     var pp = document.getElementById("privacy");

@@ -68,14 +68,16 @@ const ENV = (db) => ({ DB: db, TURNSTILE_SECRET: "test-secret", RATE_LIMIT_SALT:
 function validFields(over = {}) {
   return {
     first_name: "Pat", last_name: "Sample", email: "Pat@Example.com", company: "Sample Co", role: "Owner",
-    has_assistant: "yes", email_provider: "google", phone: "iphone", about: "I run a small firm.",
+    has_assistant: "yes", email_provider: "google", phone: "iphone", plan: "private", about: "I run a small firm.",
     privacy: "yes", tz: "America/Chicago", referral: "", website: "", t: String(NOW - 10000),
     "cf-turnstile-response": "good-token", ...over,
   };
 }
 
 async function post(db, fields, { ip = "203.0.113.7", origin = ORIGIN, mode = "pass", env, nowMs = NOW, calls } = {}) {
-  const body = new URLSearchParams(fields).toString();
+  const sp = new URLSearchParams();
+  for (const [k, v] of Object.entries(fields)) for (const x of [].concat(v)) sp.append(k, x);
+  const body = sp.toString();
   const headers = { "Content-Type": "application/x-www-form-urlencoded", "CF-Connecting-IP": ip, "Content-Length": String(body.length) };
   if (origin) headers.Origin = origin;
   const request = new Request(`${ORIGIN}/api/invite`, { method: "POST", headers, body });
@@ -413,14 +415,16 @@ test("approved copy on the page (INVITE_FORM_COPY_V1 §1-4): labels, radios, hel
     "Bervo is built for business owners and executives. Tell us a little about yourself and we'll be in touch, usually within two business days.",
     ">Preferred email<", "The address you'd like to sign in with.", ">Your role<", "For example: owner, CEO, managing partner.",
     "<legend>Do you have an assistant?</legend>", "Your assistant can have their own sign-in to Bervo.",
-    "<legend>Where is your email?</legend>", "Google (Gmail or Google Workspace)", "Microsoft 365 or Exchange",
+    "<legend>Email provider(s)</legend>", "Google (Gmail or Google Workspace)", "Microsoft 365 or Exchange",
     "<legend>Which phone do you use?</legend>", "Tell us about you and your business",
-    "You can also ask any question here.</span><textarea", ">0 of 1,000<", ">Request an Invite</button>",
+    "You can also ask any question here. We'll get back to you.</span><textarea", ">0 of 1,000<", ">Request an Invite</button>",
     "We couldn't send your request. Please check your connection and try again."]) assert.ok(html.includes(t), t);
   assert.ok(!/work email/i.test(html), "nothing on screen says work email");
   const radios = (name) => [...html.matchAll(new RegExp(`<label><input type="radio" name="${name}" value="([a-z]+)"`, "g"))].map((m) => m[1]);
   assert.deepEqual(radios("has_assistant"), ["yes", "no"]);
-  assert.deepEqual(radios("email_provider"), ["google", "microsoft", "other"]);
+  const boxes = [...html.matchAll(/<label><input type="checkbox" name="email_provider" value="([a-z]+)"/g)].map((m) => m[1]);
+  assert.deepEqual(boxes, ["google", "microsoft", "other"]);
+  assert.deepEqual(radios("phone"), ["iphone", "android"]);
   assert.deepEqual(radios("phone"), ["iphone", "android"]);
   assert.ok(!/approval from your email admin|small print/i.test(html), "no Microsoft small print on this form");
   for (const t of ["Please fill this in.", "Please enter a full email address, like name@company.com.", "Please choose one.",
@@ -541,10 +545,11 @@ test("Mark claimed trims the row to id, cohort, status and dates in the same upd
   await adminPost(db, { id: "1", action: "claimed" }, { jwt });
   const r = rows(db)[0];
   assert.equal(r.status, "claimed");
-  for (const c of ["first_name", "last_name", "email", "company", "role", "has_assistant", "email_provider", "phone",
+  for (const c of ["first_name", "last_name", "email", "company", "role", "has_assistant", "email_providers", "phone",
     "timezone", "about", "referral", "slug", "note"]) assert.equal(r[c], null, c);
   assert.equal(r.cohort, "private");
-  for (const c of ["id", "created_at", "privacy_agreed_at", "approved_at", "invited_at"]) assert.equal(r[c], before[c], c);
+  for (const c of ["id", "created_at", "privacy_agreed_at", "approved_at", "invited_at", "plan"]) assert.equal(r[c], before[c], c);
+  assert.equal(r.plan, "private", "the plan is kept with cohort");
   assert.equal(r.status_changed_at, new Date(NOW).toISOString());
   assert.deepEqual(rows(db)[1].first_name, "Ben", "the other row untouched");
   await adminPost(db, { id: "1", action: "note", note: "late" }, { jwt });
@@ -555,7 +560,7 @@ test("Mark claimed trims the row to id, cohort, status and dates in the same upd
 
 test("schema: a claimed row cannot hold request data, and an unclaimed row must", () => {
   const db = makeD1();
-  const ins = "INSERT INTO invite_requests (created_at, first_name, last_name, email, company, role, has_assistant, email_provider, phone, about, cohort, privacy_agreed_at, status) VALUES ('t','A','B','a@b.co','C','R','yes','google','iphone','x','public','t', ?)";
+  const ins = "INSERT INTO invite_requests (created_at, first_name, last_name, email, company, role, has_assistant, email_providers, phone, plan, about, cohort, privacy_agreed_at, status) VALUES ('t','A','B','a@b.co','C','R','yes','[\"google\"]','iphone','private','x','public','t', ?)";
   assert.throws(() => db.raw.prepare(ins).run("claimed"), /CHECK/);
   db.raw.prepare(ins).run("invited");
   assert.throws(() => db.raw.prepare("UPDATE invite_requests SET status='claimed' WHERE id=1").run(), /CHECK/);
@@ -580,20 +585,22 @@ test("expired and not-now rows are deleted 90 days after that status; claimed an
 // ---------- /invite page script: nothing red at load, fail closed on press (GTM check of preview 0d44c1b0) ----------
 import vm from "node:vm";
 
-function pageSandbox({ config, search = "" }) {
+function pageSandbox({ config, search = "", onPlan } = {}) {
   const els = {};
   const mk = (id, extra = {}) => (els[id] = { id, value: "", hidden: false, disabled: false, textContent: "", checked: false,
     listeners: {}, addEventListener(t, f) { this.listeners[t] = f; }, closest() { return errHolder(id); }, ...extra });
   const errs = {};
   const errHolder = (id) => ({ querySelector: () => (errs[id] ||= { textContent: "" }) });
   for (const id of ["t", "tz", "referral", "first_name", "last_name", "email", "company", "role", "about", "about-count",
-    "privacy", "privacy-err", "submit", "fs-has_assistant", "fs-email_provider", "fs-phone"]) mk(id);
+    "privacy", "privacy-err", "submit", "fs-has_assistant", "fs-email_provider", "fs-phone", "fs-plan"]) mk(id);
   mk("send-err", { hidden: true });            // the page ships it with the hidden attribute
   let token = null;
   const radios = {};
   const form = mk("invite-form", {
     querySelector(sel) {
       if (sel.includes("cf-turnstile-response")) return token;
+      const pv = sel.match(/name=plan\]\[value="(\w+)"\]/);
+      if (pv) return { set checked(v) { if (v && onPlan) onPlan(pv[1]); } };
       const m = sel.match(/name=(\w+)\]:checked/);
       return m && radios[m[1]] ? {} : null;
     },
@@ -614,7 +621,7 @@ function pageSandbox({ config, search = "" }) {
   return { els, errs, form, radios, scripts, window, fill() {
     for (const id of ["first_name", "last_name", "company", "role", "about"]) els[id].value = "x";
     els.email.value = "a@b.co"; els.privacy.checked = true;
-    Object.assign(radios, { has_assistant: 1, email_provider: 1, phone: 1 });
+    Object.assign(radios, { has_assistant: 1, email_provider: 1, phone: 1, plan: 1 });
   } };
 }
 async function loadTurnstile(p) {           // the Turnstile script's onload callback, then let fetch settle
@@ -684,4 +691,74 @@ test("/invite and /invite-thanks: only same-origin script files, no inline scrip
   const csp = ty.match(/Content-Security-Policy: (.*)/)[1];
   assert.equal(csp.match(/script-src [^;]*/)[0], "script-src 'self'");
   assert.ok(!/unsafe-inline'[^;]*;?\s*$/.test(csp.match(/script-src [^;]*/)[0]) && !/nonce|unsafe-eval|https?:/.test(csp));
+});
+
+// ---------- round 3 copy (Allen 11-10): plan, provider(s), every field required ----------
+test("plan: required, allowlisted, stored and shown; Standard listed first", async () => {
+  const db = makeD1();
+  assert.equal((await post(db, validFields({ plan: "standard" }), { ip: "198.51.100.160" })).location, "/invite-thanks");
+  assert.equal((await post(db, validFields({ plan: "private" }), { ip: "198.51.100.161" })).location, "/invite-thanks");
+  for (const [i, bad] of ["", "enterprise", "<script>"].entries())
+    assert.equal((await post(db, validFields({ plan: bad }), { ip: "198.51.100." + (162 + i) })).location, "/invite?e=invalid", bad);
+  const f = validFields(); delete f.plan;
+  assert.equal((await post(db, f, { ip: "198.51.100.166" })).location, "/invite?e=invalid", "missing plan");
+  assert.deepEqual(rows(db).map((r) => r.plan), ["standard", "private"]);
+  assert.throws(() => db.raw.prepare("UPDATE invite_requests SET plan='gold' WHERE id=1").run(), /CHECK/);
+  const page = await adminGet(db, { jwt: await makeJwt({}) });
+  assert.ok(page.body.includes("<dt>Plan</dt><dd>Standard $49/mo</dd>") && page.body.includes("<dd>Private $99/mo</dd>"));
+  const html = readFileSync(path.join(ROOT, "invite.html"), "utf8");
+  assert.ok(html.indexOf('value="standard"') < html.indexOf('value="private"'), "Standard first");
+  assert.ok(html.indexOf('name="phone" value="android"') < html.indexOf("<legend>Which plan would you like?</legend>"), "after the phone question");
+  for (const t of ['<label class="plan"><input type="radio" name="plan" value="standard" required><span><b>Standard $49/mo</b> <span class="help">Private server space. Add texts, voice, assistants anytime. Upgrade to Private anytime.</span></span></label>',
+    '<label class="plan"><input type="radio" name="plan" value="private"><span><b>Private $99/mo</b> <span class="help">Private server. Includes texts, voice, and your first assistant. Downgrade to Standard anytime.</span></span></label>'])
+    assert.ok(html.includes(t), "radio left of the bold name and grey line: " + t.slice(0, 60));
+});
+
+test("?plan= pre-selects only standard or private", () => {
+  for (const [q, want] of [["?plan=private", "private"], ["?plan=Standard", "standard"], ["?plan=gold", null], ["", null]]) {
+    const picked = [];
+    const p = pageSandbox({ config: true, search: q, onPlan: (v) => picked.push(v) });
+    assert.deepEqual(picked, want ? [want] : [], q);
+    void p;
+  }
+});
+
+test("email provider(s): any of the three, at least one, stored as a fixed-order JSON list", async () => {
+  const db = makeD1();
+  await post(db, validFields({ email_provider: ["other", "google"] }), { ip: "198.51.100.170" });
+  await post(db, validFields({ email_provider: ["microsoft", "microsoft"] }), { ip: "198.51.100.171" });
+  await post(db, validFields({ email_provider: ["google", "microsoft", "other"] }), { ip: "198.51.100.172" });
+  assert.deepEqual(rows(db).map((r) => r.email_providers), ['["google","other"]', '["microsoft"]', '["google","microsoft","other"]']);
+  const none = validFields(); delete none.email_provider;
+  assert.equal((await post(db, none, { ip: "198.51.100.173" })).location, "/invite?e=invalid");
+  assert.equal((await post(db, validFields({ email_provider: ["google", "yahoo"] }), { ip: "198.51.100.174" })).location, "/invite?e=invalid");
+  assert.equal(rows(db).length, 3);
+  assert.throws(() => db.raw.prepare(`UPDATE invite_requests SET email_providers='["yahoo"]' WHERE id=1`).run(), /CHECK/);
+  assert.throws(() => db.raw.prepare(`UPDATE invite_requests SET email_providers='["other","google"]' WHERE id=1`).run(), /CHECK/);
+  const page = await adminGet(db, { jwt: await makeJwt({}) });
+  assert.ok(page.body.includes("<dd>Google, Other</dd>") && page.body.includes("<dd>Google, Microsoft 365 or Exchange, Other</dd>"));
+});
+
+test("every field required on the server: each one missing alone is refused, nothing stored", async () => {
+  const db = makeD1();
+  let i = 0;
+  for (const k of ["first_name", "last_name", "email", "company", "role", "has_assistant", "email_provider", "phone", "plan", "about", "privacy"]) {
+    const f = validFields(); delete f[k];
+    assert.equal((await post(db, f, { ip: "198.51.100." + (180 + i++) })).location, "/invite?e=invalid", k);
+  }
+  assert.equal(rows(db).length, 0);
+});
+
+test("every field required on the page: an empty press puts the approved line under each field; no asterisks", async () => {
+  const p = pageSandbox({ config: true });
+  await loadTurnstile(p);
+  press(p);
+  const want = { first_name: "Please fill this in.", last_name: "Please fill this in.", email: "Please fill this in.",
+    company: "Please fill this in.", role: "Please fill this in.", "fs-has_assistant": "Please choose one.",
+    "fs-email_provider": "Please choose at least one.", "fs-phone": "Please choose one.", "fs-plan": "Please choose one.",
+    about: "Please fill this in." };
+  for (const [k, msg] of Object.entries(want)) assert.equal(p.errs[k]?.textContent, msg, k);
+  assert.equal(p.els["privacy-err"].textContent, "Please agree to the Privacy Policy to send your request.");
+  const html = readFileSync(path.join(ROOT, "invite.html"), "utf8");
+  assert.ok(!/\*|required-mark|aria-required/.test(html.replace(/<style>[\s\S]*?<\/style>/, "")), "no asterisks");
 });

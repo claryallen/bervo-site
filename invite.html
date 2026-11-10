@@ -15,6 +15,8 @@ textarea{min-height:130px;resize:vertical}.help{font-weight:400;font-size:13px;c
 .err{font-weight:400;font-size:13px;color:var(--err)}.err:empty{display:none}
 .counter{font:400 12.5px ui-monospace,Menlo,monospace;color:var(--muted);justify-self:end}
 .check{display:flex;gap:8px;align-items:flex-start;font-weight:400}
+.plans{display:grid;gap:10px}.plan{display:flex;gap:10px;align-items:baseline;font-weight:400;border:1px solid var(--line);border-radius:10px;padding:12px 14px;background:var(--bg);cursor:pointer}
+.plan input{flex:none;margin:0;position:relative;top:1px}.plan b{font-weight:600}.plan .help{font-size:14px}
 .hp{position:absolute;left:-10000px;width:1px;height:1px;overflow:hidden}
 button{font:inherit;font-weight:500;padding:10px 18px;border-radius:999px;border:1px solid var(--accent);background:var(--accent);color:var(--accent-ink);cursor:pointer}
 button:disabled{opacity:.6;cursor:default}footer{margin-top:2rem;font-size:.85rem;color:var(--muted)}[hidden]{display:none!important}
@@ -37,13 +39,19 @@ button:disabled{opacity:.6;cursor:default}footer{margin-top:2rem;font-size:.85re
 <fieldset id="fs-has_assistant"><legend>Do you have an assistant?</legend>
 <div class="radios"><label><input type="radio" name="has_assistant" value="yes" required> Yes</label><label><input type="radio" name="has_assistant" value="no"> No</label></div>
 <span class="help">Your assistant can have their own sign-in to Bervo.</span><span class="err"></span></fieldset>
-<fieldset id="fs-email_provider"><legend>Where is your email?</legend>
-<div class="radios"><label><input type="radio" name="email_provider" value="google" required> Google (Gmail or Google Workspace)</label><label><input type="radio" name="email_provider" value="microsoft"> Microsoft 365 or Exchange</label><label><input type="radio" name="email_provider" value="other"> Other</label></div>
+<fieldset id="fs-email_provider"><legend>Email provider(s)</legend>
+<div class="radios"><label><input type="checkbox" name="email_provider" value="google"> Google (Gmail or Google Workspace)</label><label><input type="checkbox" name="email_provider" value="microsoft"> Microsoft 365 or Exchange</label><label><input type="checkbox" name="email_provider" value="other"> Other</label></div>
 <span class="err"></span></fieldset>
 <fieldset id="fs-phone"><legend>Which phone do you use?</legend>
 <div class="radios"><label><input type="radio" name="phone" value="iphone" required> iPhone</label><label><input type="radio" name="phone" value="android"> Android</label></div>
 <span class="err"></span></fieldset>
-<label class="f" for="about">Tell us about you and your business<span class="help">What type of company and what are the biggest needs or pain points you have related to emails, texts, calendar, contacts, commitments, and projects? You can also ask any question here.</span><textarea id="about" name="about" required maxlength="1000" rows="6"></textarea><span class="counter" id="about-count">0 of 1,000</span><span class="err"></span></label>
+<fieldset id="fs-plan"><legend>Which plan would you like?</legend>
+<div class="plans">
+<label class="plan"><input type="radio" name="plan" value="standard" required><span><b>Standard $49/mo</b> <span class="help">Private server space. Add texts, voice, assistants anytime. Upgrade to Private anytime.</span></span></label>
+<label class="plan"><input type="radio" name="plan" value="private"><span><b>Private $99/mo</b> <span class="help">Private server. Includes texts, voice, and your first assistant. Downgrade to Standard anytime.</span></span></label>
+</div>
+<span class="err"></span></fieldset>
+<label class="f" for="about">Tell us about you and your business<span class="help">What type of company and what are the biggest needs or pain points you have related to emails, texts, calendar, contacts, commitments, and projects? You can also ask any question here. We'll get back to you.</span><textarea id="about" name="about" required maxlength="1000" rows="6"></textarea><span class="counter" id="about-count">0 of 1,000</span><span class="err"></span></label>
 <div class="hp" aria-hidden="true"><label for="website">Website<input type="text" id="website" name="website" tabindex="-1" autocomplete="off"></label></div>
 <input type="hidden" name="t" id="t" value="">
 <input type="hidden" name="tz" id="tz" value="">
