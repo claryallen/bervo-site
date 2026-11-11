@@ -579,3 +579,15 @@ test("M21 retention: a server's 'loaded' row keeps its hash 90 days, then only t
   assert.equal((await relayPost(db, await signed(LOADED()), { calls })).body.result, "already_sent");
   assert.equal(calls.length, 0);
 });
+
+test("M22 the router's own signing code (node:crypto createHmac, bervo_router/index.mjs) is accepted here", async () => {
+  const { createHmac } = await import("node:crypto");
+  const db = makeD1();
+  const out = JSON.stringify({ tenant: "t01", template: "loaded", to: "pat@example.com",
+    fields: { first_name: "Pat", start_date: "October 12", dashboard_link: "https://zz-test.bervo.ai/" } });
+  const ts = String(Math.floor(NOW / 1000));
+  const sig = createHmac("sha256", RELAY_SECRET).update(`${ts}.${out}`).digest("hex");
+  const r = await relayPost(db, { raw: out, headers: { "content-type": "application/json", "x-bervo-relay-ts": ts, "x-bervo-relay-sig": sig } });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.result, "sent");
+});
