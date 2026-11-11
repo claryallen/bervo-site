@@ -10,6 +10,10 @@ files that export `onRequest…`. So everything that is not part of the site liv
 
 - `functions/_lib/invites.js` — code shared by the invite handler and the admin page (no route).
 - `functions/_dev/migrations/0001_invite_requests.sql` — the D1 schema (paste into the D1 console; safe to run twice).
+- `functions/_dev/migrations/0002_invite_mail.sql` — the account-email records (CR-WELCOMEEMAIL.1; run after 0001).
+- `functions/_lib/mail.js` — the one sender for account emails (Postmark; key = Pages secret `POSTMARK_SERVER_TOKEN`,
+  plus `MAIL_REPLY_TO`, optional `MAIL_FROM`). `functions/api/postmark-events.js` is Postmark's webhook
+  (Basic auth, Pages secret `POSTMARK_WEBHOOK_SECRET`). Tests: `functions/_dev/tests/mail.test.js` (Postmark mocked).
 - `functions/_dev/tests/invite.test.js` — tests: `node --experimental-default-type=module --test functions/_dev/tests/invite.test.js`
   (Node 22+, no packages; D1 is mocked over `node:sqlite` with the real schema). It exports nothing, so it is never a route.
 

@@ -117,6 +117,12 @@ export async function pruneOld(db, nowMs) {
   const cutoff = new Date(nowMs - NOT_NOW_KEEP_DAYS * 86400000).toISOString();
   await db.prepare("DELETE FROM invite_requests WHERE status IN ('not_now', 'expired') AND status_changed_at < ?")
     .bind(cutoff).run();
+  // CR-WELCOMEEMAIL.1: an email record goes with its request (and clears its address hash once trimmed).
+  try {
+    await db.prepare("DELETE FROM invite_mail WHERE request_id NOT IN (SELECT id FROM invite_requests)").run();
+    await db.prepare("UPDATE invite_mail SET address_hash = NULL WHERE address_hash IS NOT NULL AND request_id IN " +
+      "(SELECT id FROM invite_requests WHERE status = 'claimed')").run();
+  } catch { /* the 0002 table is not there yet */ }
 }
 
 export function stripFormatChars(v) { return String(v ?? "").replace(FORMAT_CHARS, ""); }

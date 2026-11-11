@@ -392,7 +392,7 @@ test("'not now' rows are deleted 90 days after the decision; others kept", async
   assert.deepEqual(rows(db).map((r) => r.id), [2]);
 });
 
-test("the invite email is the approved copy and the owner link never reaches the server", async () => {
+test("the invite email is the approved copy; the owner link reaches the server only with Send (CR-WELCOMEEMAIL.1)", async () => {
   assert.equal(admin.INVITE_EMAIL_SUBJECT, "Your Bervo invite");
   assert.ok(admin.INVITE_EMAIL_TEMPLATE.startsWith("Hi {first_name},\n\nThanks for requesting an invite to Bervo. I'm glad to have you."));
   assert.match(admin.INVITE_EMAIL_TEMPLATE, /Here's your personal setup link:\n\{link\}\n/);
@@ -400,8 +400,9 @@ test("the invite email is the approved copy and the owner link never reaches the
   assert.ok(admin.INVITE_EMAIL_TEMPLATE.endsWith("Any questions, just reply to this email.\n\nAllen"));
   assert.ok(!/\[GTM/.test(admin.INVITE_EMAIL_TEMPLATE));
   const src = readFileSync(path.join(ROOT, "functions/admin/invites.js"), "utf8");
-  // the link input has no name attribute (so it is never submitted) and sits outside every <form>
-  assert.match(src, /<input class="link" type="url" autocomplete="off">/);
+  // CR-WELCOMEEMAIL.1 changed this on purpose: the link box now sits in the Send form (name="link"), so Send posts it
+  // for that one email. It is never stored or logged (mail.test.js M3, M6); Copy still fills it in the browser only.
+  assert.match(src, /<form method="post" action="\/admin\/invites" class="send">\n<input type="hidden" name="id" value="\$\{e\(r\.id\)\}">\n<label>Owner link \(paste it here\) <input class="link" name="link" type="url" autocomplete="off" required>/);
 });
 
 test("approved copy on the page (INVITE_FORM_COPY_V1 §1-4): labels, radios, help, counter, errors; no placeholders left", () => {
