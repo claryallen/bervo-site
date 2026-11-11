@@ -11,7 +11,7 @@
 // Approve / Not now / Mark invited / the note change ONLY the D1 row. Nothing here touches a server; the
 // orchestrator reads an approved row with tools/tenant/invite_to_profile.py (daily-dashboard).
 import { checkAccess, escapeHtml, pruneOld, redirect, SLUG_RE, stripFormatChars, TRIM_SET } from "../_lib/invites.js";
-import { MailError, reminderDue, reminderExpiryDate, sendingOff, sendTemplate, TEMPLATES } from "../_lib/mail.js";
+import { linkMatchesSlug, MailError, reminderDue, reminderExpiryDate, sendingOff, sendTemplate, TEMPLATES } from "../_lib/mail.js";
 
 // The invite email (words: daily-dashboard docs/marketing/site/INVITE_FORM_COPY_V1.md §5, approved by Allen 11-10;
 // they live in functions/_lib/mail.js now, the one sender). CR-WELCOMEEMAIL.1: **Send invite email** sends it
@@ -23,6 +23,7 @@ export const INVITE_EMAIL_TEMPLATE = TEMPLATES.invite.body;
 const MAIL_LABEL = { invite: "Invite email", reminder_day3: "Day-3 reminder", reminder_day10: "Day-10 reminder",
   loaded: "\"You're loaded\" email" };
 const SENT_FLASH = { ok: "Invite email sent.", reminder: "Reminder sent.", notdue: "Not sent: no reminder is due for this request.", off: "Not sent: sending is off. Use Copy below.",
+  host: "Not sent: that link is for another server (this request's slug is on a different host). Nothing was sent.",
   link: "Not sent: that is not an owner link (https://<server>.bervo.ai/set-password?t=…). Nothing was sent.",
   failed: "Not sent: Postmark did not take it. Use Copy below, or try again." };
 
@@ -242,6 +243,7 @@ async function sendReminder(context, env, id, form, nowMs) {
   const mails = (await mailsFor(env.DB, [id])).get(id) || [];
   const due = reminderDue(row, mails, nowMs);
   if (!due) return back("notdue");
+  if (!linkMatchesSlug(String(form.get("link") || "").trim(), row.slug)) return back("host");
   try {
     const res = await sendTemplate(env, { template: due, to: row.email, requestId: id, nowMs,
       fields: { first_name: row.first_name, link: String(form.get("link") || "").trim(), expiry_date: reminderExpiryDate(nowMs, row.timezone) },
@@ -256,11 +258,12 @@ async function sendReminder(context, env, id, form, nowMs) {
 // Send invite email: the request must be approved or invited. Success marks an approved request invited.
 async function sendInvite(context, env, id, form, nowMs) {
   const back = (code) => redirect(`/admin/invites?sent=${code}&r=${id}#r${id}`);
-  const row = await env.DB.prepare("SELECT id, status, first_name, email FROM invite_requests WHERE id = ?").bind(id).first();
+  const row = await env.DB.prepare("SELECT id, status, first_name, email, slug FROM invite_requests WHERE id = ?").bind(id).first();
   if (!row) return refused(404);
   if (row.status !== "approved" && row.status !== "invited") return redirect(`/admin/invites#r${id}`);   // stale page
   if (sendingOff(env)) return back("off");
   const link = String(form.get("link") || "").trim();
+  if (!linkMatchesSlug(link, row.slug)) return back("host");
   let res;
   try {
     res = await sendTemplate(env, { template: "invite", to: row.email, fields: { first_name: row.first_name, link },

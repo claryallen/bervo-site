@@ -75,7 +75,7 @@ export async function onRequestPost(context) {
     res = await sendTemplate(env, { template: "loaded", to: body.to, tenant, nowMs, fetchImpl: context.mailFetch || fetch, say,
       fields: { first_name: f.first_name, start_date: f.start_date, dashboard_link: f.dashboard_link } });
   } catch (e) {
-    if (e instanceof MailError && (e.code.startsWith("bad_") || e.code === "placeholder")) {
+    if (e instanceof MailError && e.code !== "off") {          // round 3: every refusal of the content is a 400, never retried
       say(JSON.stringify({ event: "account_mail_relay", tenant, result: e.code }));
       return reply(400, { ok: false, result: e.code });
     }

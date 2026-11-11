@@ -591,3 +591,44 @@ test("M22 the router's own signing code (node:crypto createHmac, bervo_router/in
   assert.equal(r.status, 200);
   assert.equal(r.body.result, "sent");
 });
+
+// ---------- round 3 (verifier-opus 11-11) ----------
+test("M23 relay: a template marker in a field, or any other content refusal (e.g. 'unfilled'), is a 400, never a 500", async () => {
+  const db = makeD1();
+  const calls = [];
+  for (const first of ["{dashboard_link}", "Pat {x}", "}"]) {
+    const r = await relayPost(db, await signed(LOADED({ fields: { first_name: first, start_date: "October 12", dashboard_link: "https://zz-test.bervo.ai/" } })), { calls });
+    assert.equal(r.status, 400, first);
+    assert.equal(r.body.result, "bad_field:first_name");
+  }
+  const saved = mail.TEMPLATES.loaded.body;
+  mail.TEMPLATES.loaded.body = saved + " {not_a_field}";
+  try {
+    const r = await relayPost(db, await signed(LOADED()), { calls });
+    assert.equal(r.status, 400);
+    assert.equal(r.body.result, "unfilled");
+  } finally { mail.TEMPLATES.loaded.body = saved; }
+  assert.equal(calls.length, 0);
+  assert.equal(mailRows(db).length, 0);
+});
+
+test("M24 admin Send / reminder: with a slug on the request, the link must be on <slug>.bervo.ai", async () => {
+  const db = makeD1();
+  const id = seed(db);
+  const calls = [];
+  db.raw.prepare("UPDATE invite_requests SET slug = 'other' WHERE id = ?").run(id);
+  let r = await adminPost(db, { id: String(id), action: "send_invite", link: LINK }, { mailFetch: postmark("ok", calls) });
+  assert.equal(r.location, `/admin/invites?sent=host&r=${id}#r${id}`);
+  assert.equal(calls.length, 0);
+  assert.equal(request(db, id).status, "approved");
+  db.raw.prepare("UPDATE invite_requests SET slug = 'zz-test' WHERE id = ?").run(id);
+  r = await adminPost(db, { id: String(id), action: "send_invite", link: LINK }, { mailFetch: postmark("ok", calls) });
+  assert.equal(r.location, `/admin/invites?sent=ok&r=${id}#r${id}`);
+  assert.equal(calls.length, 1);
+  db.raw.prepare("UPDATE invite_mail SET created_at = ? WHERE request_id = ?").run(new Date(NOW - 3 * 86400000).toISOString(), id);
+  db.raw.prepare("UPDATE invite_requests SET slug = 'other' WHERE id = ?").run(id);
+  r = await adminPost(db, { id: String(id), action: "send_reminder", link: LINK }, { mailFetch: postmark("ok", calls) });
+  assert.equal(r.location, `/admin/invites?sent=host&r=${id}#r${id}`);
+  assert.equal(calls.length, 1);
+  assert.ok(mail.linkMatchesSlug(LINK, null) && mail.linkMatchesSlug(LINK, "zz-test") && !mail.linkMatchesSlug(LINK, "zz"));
+});

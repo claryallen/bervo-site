@@ -112,6 +112,7 @@ export class MailError extends Error {
 function fieldOk(name, v) {
   if (typeof v !== "string") return false;
   if (/[\u0000-\u001F\u007F]/.test(v) || /\p{Cf}/u.test(v)) return false;     // no line breaks, no hidden marks
+  if (/[{}]/.test(v)) return false;                                            // no template markers in a value (round 3)
   if (name === "link") return INVITE_LINK_RE.test(v);
   if (name === "dashboard_link") return DASHBOARD_LINK_RE.test(v);
   if (name === "first_name") return v.trim().length > 0 && v.length <= NAME_MAX;
@@ -130,6 +131,13 @@ export function render(template, fields) {
   if (subject.includes("[GTM]") || text.includes("[GTM]")) throw new MailError("placeholder");
   if (/\{[a-z_]+\}/.test(subject + text)) throw new MailError("unfilled");
   return { subject, text };
+}
+
+// Round 3: when the request's slug is known, the owner link must be on that customer's own host
+// (<slug>.bervo.ai, invite_to_profile.py's public_hostname). Unknown slug: any *.bervo.ai (INVITE_LINK_RE).
+export function linkMatchesSlug(link, slug) {
+  if (!slug) return true;
+  try { return new URL(String(link)).hostname === `${String(slug).toLowerCase()}.bervo.ai`; } catch { return false; }
 }
 
 // -> null when sending is possible, else why not (shown on the admin page; Copy is the fallback).
