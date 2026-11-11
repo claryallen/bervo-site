@@ -11,6 +11,7 @@ import path from "node:path";
 
 import * as admin from "../../admin/invites.js";
 import * as hook from "../../api/postmark-events.js";
+import * as relay from "../../api/account-mail.js";
 import { _resetAccessKeyCache, pruneOld } from "../../_lib/invites.js";
 import * as mail from "../../_lib/mail.js";
 
@@ -146,10 +147,33 @@ test("M1 render: the invite is Allen's approved §5 text with the name and link 
   assert.throws(() => mail.render("nope", {}), { code: "unknown_template" });
 });
 
-test("M2 the [GTM] placeholder templates can never be sent", () => {
-  assert.throws(() => mail.render("loaded", { first_name: "Pat", dashboard_link: "https://zz-test.bervo.ai/" }), { code: "placeholder" });
-  for (const t of ["reminder_day3", "reminder_day10"])
-    assert.throws(() => mail.render(t, { first_name: "Pat", sent_date: "Nov 12", expiry_date: "Nov 26" }), { code: "placeholder" });
+test("M2 Allen's approved words (NEXT_USER_WORDS_V1 §A, 11-11), word for word; no placeholder left; [GTM] still refused", () => {
+  const inv = mail.render("invite", { first_name: "Pat", link: LINK }).text;
+  assert.equal(inv, `Hi Pat,\n\nThanks for requesting an invite to Bervo. I'm glad to have you.\n\nHere's your personal setup link:\n${LINK}\n\n` +
+    "You'll need about 20 minutes, your phone, and the sign-in for the email account you want Bervo to read.\n\n" +
+    "It works once and stays open for 14 days. Setup takes you through connecting your email, choosing how much history to load, " +
+    "adding your AI API key and texting the Bervo line. Stopped partway? Sign in with your email and password and you'll pick up " +
+    "where you left off.\n\nAny questions, just reply to this email.\n\nAllen");
+  const r3 = mail.render("reminder_day3", { first_name: "Pat", link: LINK, expiry_date: "November 25" });
+  assert.equal(r3.subject, "Your Bervo setup link");
+  assert.equal(r3.text, `Hi Pat,\n\nJust a reminder that your Bervo setup is waiting. Here's a fresh link (the one in my earlier email no longer works):\n${LINK}\n\n` +
+    "It stays open until November 25. If now isn't a good time, reply and I'll send a new one when you're ready.\n\nAllen");
+  const r10 = mail.render("reminder_day10", { first_name: "Pat", link: LINK, expiry_date: "December 2" });
+  assert.equal(r10.subject, "Still want to set up Bervo?");
+  assert.equal(r10.text, `Hi Pat,\n\nHere's a new setup link, in case the earlier ones got buried:\n${LINK}\n\n` +
+    "It stays open until December 2. If you'd rather start later, reply and I'll send one then.\n\nAllen");
+  const ld = mail.render("loaded", { first_name: "Pat", start_date: "October 12", dashboard_link: "https://zz-test.bervo.ai/" });
+  assert.equal(ld.subject, "Bervo is ready");
+  assert.equal(ld.text, "Hi Pat,\n\nBervo has read your email back to October 12, and your dashboard is ready:\nhttps://zz-test.bervo.ai/\n\n" +
+    "Start with Today. It shows your briefing, your schedule and anything waiting on you. Your first morning brief will be on your " +
+    "dashboard tomorrow morning.\n\nIf anything looks wrong, use Feedback at the top of the dashboard, or text Bervo.\n\nAllen");
+  for (const t of Object.values(mail.TEMPLATES)) assert.ok(!(t.subject + t.body).includes("[GTM"));
+  assert.throws(() => mail.render("loaded", { first_name: "Pat", start_date: "October 12", dashboard_link: "https://zz-test.bervo.ai/x" }), { code: "bad_field:dashboard_link" });
+  assert.throws(() => mail.render("loaded", { first_name: "Pat", start_date: "Oct\n12", dashboard_link: "https://zz-test.bervo.ai/" }), { code: "bad_field:start_date" });
+  const saved = mail.TEMPLATES.loaded.subject;
+  mail.TEMPLATES.loaded.subject = "[GTM] draft";
+  try { assert.throws(() => mail.render("loaded", { first_name: "Pat", start_date: "October 12", dashboard_link: "https://zz-test.bervo.ai/" }), { code: "placeholder" }); }
+  finally { mail.TEMPLATES.loaded.subject = saved; }
 });
 
 test("M3 send: Postmark gets the right message; D1 and the log hold no address, link, body or key", async () => {
@@ -392,11 +416,166 @@ test("M15 no Postmark key or webhook secret is in any tracked file; no wrangler.
     let text;
     try { text = readFileSync(path.join(ROOT, f), "utf8"); } catch { continue; }
     for (const ln of text.split("\n")) {
-      if (/POSTMARK_(SERVER_TOKEN|WEBHOOK_SECRET)\s*[=:]\s*["']?[A-Za-z0-9-]{8,}/.test(ln)) assert.fail(`${f}: a value next to a Postmark setting`);
+      if (/(POSTMARK_(SERVER_TOKEN|WEBHOOK_SECRET)|BERVO_MAIL_RELAY_SECRET)\s*[=:]\s*["']?[A-Za-z0-9-]{8,}/.test(ln) && !f.endsWith("mail.test.js"))
+        assert.fail(`${f}: a value next to a mail secret`);
       if (/postmark/i.test(ln) && uuid.test(ln) && !f.endsWith("mail.test.js")) assert.fail(`${f}: a UUID on a Postmark line`);
       if (/X-Postmark-Server-Token["']?\s*:\s*["'][^"']/.test(ln)) assert.fail(`${f}: a literal token header`);
     }
   }
   const src = readFileSync(path.join(ROOT, "functions/_lib/mail.js"), "utf8");
   assert.match(src, /"X-Postmark-Server-Token": String\(env\.POSTMARK_SERVER_TOKEN\)\.trim\(\)/, "the key is read from the Pages secret only");
+});
+
+// ---------- reminders on the admin page (Allen 11-11: a button when due; a fresh link) ----------
+async function invitedAt(db, id, whenMs) {
+  await adminPost(db, { id: String(id), action: "send_invite", link: LINK });
+  db.raw.prepare("UPDATE invite_mail SET created_at = ? WHERE request_id = ?").run(new Date(whenMs).toISOString(), id);
+}
+
+test("M16 reminder button: hidden before day 3; shown on day 3 with the fresh-link instructions; sends day 3 then day 10 once each", async () => {
+  const db = makeD1();
+  const id = seed(db);
+  const day = 86400000;
+  await invitedAt(db, id, NOW - 2 * day);
+  assert.ok(!(await adminGet(db)).body.includes('value="send_reminder"'), "not due on day 2");
+  const calls = [];
+  let r = await adminPost(db, { id: String(id), action: "send_reminder", link: LINK }, { mailFetch: postmark("ok", calls) });
+  assert.equal(r.location, `/admin/invites?sent=notdue&r=${id}#r${id}`);
+  assert.equal(calls.length, 0);
+  db.raw.prepare("UPDATE invite_mail SET created_at = ? WHERE request_id = ?").run(new Date(NOW - 3 * day).toISOString(), id);
+  const page = await adminGet(db);
+  assert.ok(page.body.includes("Day-3 reminder due.") && page.body.includes("owner_invite_link.py") && page.body.includes("the earlier one stops working"));
+  assert.ok(page.body.includes('value="send_reminder"'));
+  const FRESH = LINK.replace("A1b2", "Z9y8");
+  r = await adminPost(db, { id: String(id), action: "send_reminder", link: FRESH }, { mailFetch: postmark("ok", calls) });
+  assert.equal(r.location, `/admin/invites?sent=reminder&r=${id}#r${id}`);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].body.Subject, "Your Bervo setup link");
+  assert.ok(calls[0].body.TextBody.includes(FRESH) && calls[0].body.TextBody.includes("no longer works"));
+  assert.ok(calls[0].body.TextBody.includes("It stays open until November 25."), "now + 13 days, request time zone (America/Chicago)");
+  assert.equal(calls[0].body.To, ADDRESS);
+  // a second press the same day: not due any more
+  r = await adminPost(db, { id: String(id), action: "send_reminder", link: FRESH }, { mailFetch: postmark("ok", calls) });
+  assert.equal(r.location, `/admin/invites?sent=notdue&r=${id}#r${id}`);
+  // day 10
+  db.raw.prepare("UPDATE invite_mail SET created_at = ? WHERE template = 'invite'").run(new Date(NOW - 10 * day).toISOString());
+  db.raw.prepare("UPDATE invite_mail SET created_at = ? WHERE template = 'reminder_day3'").run(new Date(NOW - 7 * day).toISOString());
+  assert.ok((await adminGet(db)).body.includes("Day-10 reminder due."));
+  r = await adminPost(db, { id: String(id), action: "send_reminder", link: FRESH }, { mailFetch: postmark("ok", calls) });
+  assert.equal(calls.length, 2);
+  assert.equal(calls[1].body.Subject, "Still want to set up Bervo?");
+  assert.ok(!dumpDb(db).includes(FRESH.split("t=")[1]), "the fresh link is not stored");
+  assert.deepEqual(mailRows(db).map((m) => m.template), ["invite", "reminder_day3", "reminder_day10"]);
+});
+
+test("M17 reminder refused: bounced invite, claimed request, bad link, sending off; nothing reaches Postmark", async () => {
+  const day = 86400000;
+  const calls = [];
+  const db = makeD1();
+  const id = seed(db);
+  await invitedAt(db, id, NOW - 3 * day);
+  db.raw.prepare("UPDATE invite_mail SET status = 'bounced', detail = 'HardBounce'").run();
+  assert.ok(!(await adminGet(db)).body.includes('value="send_reminder"'), "a bounce stops reminders");
+  let r = await adminPost(db, { id: String(id), action: "send_reminder", link: LINK }, { mailFetch: postmark("ok", calls) });
+  assert.equal(r.location, `/admin/invites?sent=notdue&r=${id}#r${id}`);
+  db.raw.prepare("UPDATE invite_mail SET status = 'delivered', detail = NULL").run();
+  r = await adminPost(db, { id: String(id), action: "send_reminder", link: "https://evil.example/set-password?t=" + "x".repeat(43) }, { mailFetch: postmark("ok", calls) });
+  assert.equal(r.location, `/admin/invites?sent=link&r=${id}#r${id}`);
+  r = await adminPost(db, { id: String(id), action: "send_reminder", link: LINK }, { env: ADMIN_ENV(db, { POSTMARK_SERVER_TOKEN: "" }), mailFetch: postmark("ok", calls) });
+  assert.equal(r.location, `/admin/invites?sent=off&r=${id}#r${id}`);
+  await adminPost(db, { id: String(id), action: "claimed" });
+  r = await adminPost(db, { id: String(id), action: "send_reminder", link: LINK }, { mailFetch: postmark("ok", calls) });
+  assert.equal(r.location, `/admin/invites?sent=notdue&r=${id}#r${id}`);
+  assert.equal(calls.length, 0);
+});
+
+test("M18 reminderExpiryDate: now + 13 days in the request's zone (UTC when unknown or invalid)", () => {
+  const t = Date.parse("2026-11-12T03:30:00Z");                      // still Nov 11 in Chicago
+  assert.equal(mail.reminderExpiryDate(t, "America/Chicago"), "November 24");
+  assert.equal(mail.reminderExpiryDate(t, null), "November 25");
+  assert.equal(mail.reminderExpiryDate(t, "Not/AZone"), "November 25");
+});
+
+// ---------- the relay: router -> bervo.ai (Allen 11-11 Q1 (a)) ----------
+const RELAY_SECRET = "fake-relay-secret-0123456789abcdef0123";
+async function signed(body, { secret = RELAY_SECRET, ts = Math.floor(NOW / 1000) } = {}) {
+  const raw = JSON.stringify(body);
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const sig = Buffer.from(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`${ts}.${raw}`))).toString("hex");
+  return { raw, headers: { "Content-Type": "application/json", "x-bervo-relay-ts": String(ts), "x-bervo-relay-sig": sig } };
+}
+const LOADED = (over = {}) => ({ tenant: "zz-test", template: "loaded", to: "Pat@Example.com",
+  fields: { first_name: "Pat", start_date: "October 12", dashboard_link: "https://zz-test.bervo.ai/" }, ...over });
+async function relayPost(db, req, { env, calls = [], logs = [] } = {}) {
+  const res = await relay.onRequestPost({ request: new Request(`${ORIGIN}/api/account-mail`, { method: "POST", headers: req.headers, body: req.raw }),
+    env: env || MAIL_ENV(db, { BERVO_MAIL_RELAY_SECRET: RELAY_SECRET }), mailFetch: postmark("ok", calls), say: (l) => logs.push(l), nowMs: NOW });
+  return { status: res.status, body: await res.json() };
+}
+
+test("M19 relay: a signed 'loaded' request sends the approved email once per server; the record is the server's, not a request's", async () => {
+  const db = makeD1();
+  const calls = [], logs = [];
+  let r = await relayPost(db, await signed(LOADED()), { calls, logs });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.result, "sent");
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].body.To, ADDRESS);
+  assert.equal(calls[0].body.Subject, "Bervo is ready");
+  assert.ok(calls[0].body.TextBody.includes("back to October 12") && calls[0].body.TextBody.includes("https://zz-test.bervo.ai/"));
+  const row = mailRows(db)[0];
+  assert.equal(row.tenant, "zz-test");
+  assert.equal(row.request_id, null);
+  assert.equal(row.template, "loaded");
+  r = await relayPost(db, await signed(LOADED()), { calls, logs });
+  assert.equal(r.body.result, "already_sent");
+  assert.equal(calls.length, 1, "once per server");
+  const kept = JSON.stringify(mailRows(db)) + logs.join("\n");
+  for (const x of [ADDRESS, "Pat", "October 12"]) assert.ok(!kept.toLowerCase().includes(x.toLowerCase()), x);
+  // a different server is its own once
+  await relayPost(db, await signed(LOADED({ tenant: "zz-other" })), { calls });
+  assert.equal(calls.length, 2);
+  // shown on the admin page
+  const page = await adminGet(db);
+  assert.match(page.body, /Account emails by server/);
+  assert.match(page.body, /zz-test · &quot;You&#39;re loaded&quot; email: <span class="ms ms-sent">sent/);
+});
+
+test("M20 relay refused: no secret, bad/old/forged signature, other templates, bad fields, sending off; failed send can be retried", async () => {
+  const db = makeD1();
+  const calls = [];
+  const env = MAIL_ENV(db, { BERVO_MAIL_RELAY_SECRET: RELAY_SECRET });
+  assert.equal((await relayPost(db, await signed(LOADED()), { env: MAIL_ENV(db), calls })).status, 503);
+  assert.equal((await relayPost(db, await signed(LOADED()), { env: MAIL_ENV(db, { BERVO_MAIL_RELAY_SECRET: "short" }), calls })).status, 503);
+  assert.equal((await relayPost(db, await signed(LOADED(), { secret: "x".repeat(40) }), { env, calls })).status, 401);
+  assert.equal((await relayPost(db, await signed(LOADED(), { ts: Math.floor(NOW / 1000) - 301 }), { env, calls })).status, 401);
+  const tampered = await signed(LOADED());
+  tampered.raw = tampered.raw.replace("zz-test\"", "zz-evil\"");
+  assert.equal((await relayPost(db, tampered, { env, calls })).status, 401, "the tenant is covered by the signature");
+  assert.equal((await relayPost(db, { raw: JSON.stringify(LOADED()), headers: { "Content-Type": "application/json" } }, { env, calls })).status, 401);
+  assert.equal((await relayPost(db, await signed(LOADED({ template: "invite" })), { env, calls })).body.result, "bad_template");
+  assert.equal((await relayPost(db, await signed(LOADED({ tenant: "Bad Tenant" })), { env, calls })).body.result, "bad_tenant");
+  assert.equal((await relayPost(db, await signed(LOADED({ to: "not-an-address" })), { env, calls })).body.result, "bad_address");
+  assert.equal((await relayPost(db, await signed(LOADED({ fields: { first_name: "Pat", start_date: "October 12", dashboard_link: "https://evil.example/" } })), { env, calls })).body.result, "bad_field:dashboard_link");
+  assert.equal((await relayPost(db, await signed(LOADED()), { env: { ...env, POSTMARK_SERVER_TOKEN: "" }, calls })).body.result, "sending_off");
+  assert.equal(calls.length, 0);
+  // Postmark refuses once (a 'failed' row); the next relay try sends
+  const res = await relay.onRequestPost({ request: new Request(`${ORIGIN}/api/account-mail`, { method: "POST", ...(await (async () => { const x = await signed(LOADED()); return { headers: x.headers, body: x.raw }; })()) }),
+    env, mailFetch: postmark("inactive"), say: () => {}, nowMs: NOW });
+  assert.equal(res.status, 502);
+  const ok = await relayPost(db, await signed(LOADED()), { env, calls });
+  assert.equal(ok.body.result, "sent");
+  assert.deepEqual(mailRows(db).map((m) => m.status), ["failed", "sent"]);
+});
+
+test("M21 retention: a server's 'loaded' row keeps its hash 90 days, then only the once-only record stays", async () => {
+  const db = makeD1();
+  await relayPost(db, await signed(LOADED()));
+  db.raw.prepare("UPDATE invite_mail SET created_at = '2026-08-01T00:00:00Z'").run();
+  await pruneOld(db, NOW);
+  const row = mailRows(db)[0];
+  assert.equal(row.address_hash, null);
+  assert.equal(row.tenant, "zz-test");
+  const calls = [];
+  assert.equal((await relayPost(db, await signed(LOADED()), { calls })).body.result, "already_sent");
+  assert.equal(calls.length, 0);
 });

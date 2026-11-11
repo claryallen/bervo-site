@@ -11,7 +11,7 @@
 // Approve / Not now / Mark invited / the note change ONLY the D1 row. Nothing here touches a server; the
 // orchestrator reads an approved row with tools/tenant/invite_to_profile.py (daily-dashboard).
 import { checkAccess, escapeHtml, pruneOld, redirect, SLUG_RE, stripFormatChars, TRIM_SET } from "../_lib/invites.js";
-import { MailError, sendingOff, sendTemplate, TEMPLATES } from "../_lib/mail.js";
+import { MailError, reminderDue, reminderExpiryDate, sendingOff, sendTemplate, TEMPLATES } from "../_lib/mail.js";
 
 // The invite email (words: daily-dashboard docs/marketing/site/INVITE_FORM_COPY_V1.md §5, approved by Allen 11-10;
 // they live in functions/_lib/mail.js now, the one sender). CR-WELCOMEEMAIL.1: **Send invite email** sends it
@@ -22,7 +22,7 @@ export const INVITE_EMAIL_SUBJECT = TEMPLATES.invite.subject;
 export const INVITE_EMAIL_TEMPLATE = TEMPLATES.invite.body;
 const MAIL_LABEL = { invite: "Invite email", reminder_day3: "Day-3 reminder", reminder_day10: "Day-10 reminder",
   loaded: "\"You're loaded\" email" };
-const SENT_FLASH = { ok: "Invite email sent.", off: "Not sent: sending is off. Use Copy below.",
+const SENT_FLASH = { ok: "Invite email sent.", reminder: "Reminder sent.", notdue: "Not sent: no reminder is due for this request.", off: "Not sent: sending is off. Use Copy below.",
   link: "Not sent: that is not an owner link (https://<server>.bervo.ai/set-password?t=…). Nothing was sent.",
   failed: "Not sent: Postmark did not take it. Use Copy below, or try again." };
 
@@ -71,7 +71,22 @@ function renderMail(list) {
     `${m.status === "failed" && m.error_code != null ? ` · code ${e(m.error_code)}` : ""}</li>`).join("")}</ul>`;
 }
 
-function renderRow(r, mails = [], mailOff = null, flash = "") {
+function renderReminder(r, mails, mailOff, nowMs) {
+  const due = reminderDue(r, mails || [], nowMs);
+  if (!due) return "";
+  const e = escapeHtml;
+  const label = due === "reminder_day3" ? "Day-3 reminder" : "Day-10 reminder";
+  return `<div class="remind"><p><b>${label} due.</b> On the Mini, run <code>tools/tenant/owner_invite_link.py</code> for
+this customer again: it makes a fresh link and the earlier one stops working. Paste the fresh link here and send it within a
+day (the email says the link stays open until ${e(reminderExpiryDate(nowMs, r.timezone))}).</p>
+${mailOff ? `<p class="off">Sending is off (${e(mailOff)}).</p>` : `<form method="post" action="/admin/invites" class="send">
+<input type="hidden" name="id" value="${e(r.id)}">
+<label>Fresh owner link <input name="link" type="url" autocomplete="off" required></label>
+<button name="action" value="send_reminder" type="submit">Send ${label.toLowerCase()}</button> to ${e(r.email)}
+</form>`}</div>`;
+}
+
+function renderRow(r, mails = [], mailOff = null, flash = "", nowMs = Date.now()) {
   const e = escapeHtml;
   const personal = r.referral === "allen" ? ` <span class="badge">Personal invite</span>` : "";
   const btn = (action, label) =>
@@ -118,6 +133,7 @@ ${slugField}
 </form>
 ${renderMail(mails)}
 ${flash ? `<p class="flash">${e(flash)}</p>` : ""}
+${r.status === "invited" ? renderReminder(r, mails, mailOff, nowMs) : ""}
 ${r.status === "approved" || r.status === "invited" ? `<div class="copy" data-first="${e(r.first_name)}">
 <form method="post" action="/admin/invites" class="send">
 <input type="hidden" name="id" value="${e(r.id)}">
@@ -167,9 +183,10 @@ dl{display:grid;grid-template-columns:10rem 1fr;gap:.1rem .75rem;margin:.5rem 0}
 textarea,input{width:100%;box-sizing:border-box;font:inherit}label{display:block;margin:.4rem 0}.buttons{margin-top:.4rem}
 .copy{margin-top:.6rem;border-top:1px dashed #ccc;padding-top:.5rem}
 .mail-log{margin:.4rem 0;padding-left:1.2rem}.ms{border-radius:4px;padding:0 .4em;background:#eee}.ms-delivered{background:#d1fae5}
-.ms-bounced,.ms-complained,.ms-failed{background:#fee2e2}.flash{background:#fef3c7;border-radius:6px;padding:.3rem .6rem}.off{color:#7a4b00}</style></head><body>
+.ms-bounced,.ms-complained,.ms-failed{background:#fee2e2}.remind{background:#eff6ff;border-radius:6px;padding:.3rem .7rem;margin:.5rem 0}.flash{background:#fef3c7;border-radius:6px;padding:.3rem .6rem}.off{color:#7a4b00}</style></head><body>
 <h1>Invite requests</h1><p>Signed in as ${escapeHtml(auth.email)} · Show: ${nav}</p>
-${results.length ? results.map((r) => renderRow(r, mails.get(r.id), mailOff, r.id === flashId ? flash : "")).join("\n") : "<p>None.</p>"}
+${results.length ? results.map((r) => renderRow(r, mails.get(r.id), mailOff, r.id === flashId ? flash : "", nowMs)).join("\n") : "<p>None.</p>"}
+${renderServerMail(await serverMails(env.DB))}
 <script nonce="${nonce}">
 const TEMPLATE = ${JSON.stringify(INVITE_EMAIL_TEMPLATE).replace(/</g, "\\u003c")};
 for (const box of document.querySelectorAll(".copy")) {
@@ -196,6 +213,44 @@ async function mailsFor(db, ids) {
     for (const m of results) { if (!out.has(m.request_id)) out.set(m.request_id, []); out.get(m.request_id).push(m); }
   } catch { /* no invite_mail table yet */ }
   return out;
+}
+
+// "You're loaded" emails, by customer server (sent through the router; no request row by then). Newest 50.
+async function serverMails(db) {
+  try {
+    const { results } = await db.prepare("SELECT tenant, template, status, detail, error_code, created_at FROM invite_mail " +
+      "WHERE tenant IS NOT NULL ORDER BY id DESC LIMIT 50").all();
+    return results;
+  } catch { return []; }
+}
+
+function renderServerMail(list) {
+  if (!list.length) return "";
+  const e = escapeHtml;
+  return `<h2>Account emails by server</h2><ul class="mail-log">${list.map((m) => `<li>${e(m.tenant)} · ` +
+    `${e(MAIL_LABEL[m.template] || m.template)}: <span class="ms ms-${e(m.status)}">${e(m.status)}${m.detail ? ` (${e(m.detail)})` : ""}</span>` +
+    ` · ${fmt(m.created_at)}${m.status === "failed" && m.error_code != null ? ` · code ${e(m.error_code)}` : ""}</li>`).join("")}</ul>`;
+}
+
+// Send reminder (Allen 11-11 Q2/Q3): only when reminderDue() says one is due right now; the link is the FRESH one
+// Allen just made with owner_invite_link.py (which retires the earlier link on the server).
+async function sendReminder(context, env, id, form, nowMs) {
+  const back = (code) => redirect(`/admin/invites?sent=${code}&r=${id}#r${id}`);
+  const row = await env.DB.prepare("SELECT * FROM invite_requests WHERE id = ?").bind(id).first();
+  if (!row) return refused(404);
+  if (sendingOff(env)) return back("off");
+  const mails = (await mailsFor(env.DB, [id])).get(id) || [];
+  const due = reminderDue(row, mails, nowMs);
+  if (!due) return back("notdue");
+  try {
+    const res = await sendTemplate(env, { template: due, to: row.email, requestId: id, nowMs,
+      fields: { first_name: row.first_name, link: String(form.get("link") || "").trim(), expiry_date: reminderExpiryDate(nowMs, row.timezone) },
+      fetchImpl: context.mailFetch || fetch, say: context.say || console.log });
+    return back(res.ok ? "reminder" : "failed");
+  } catch (e) {
+    if (e instanceof MailError && e.code === "bad_field:link") return back("link");
+    return back(e instanceof MailError && e.code === "off" ? "off" : "failed");
+  }
 }
 
 // Send invite email: the request must be approved or invited. Success marks an approved request invited.
@@ -243,6 +298,7 @@ export async function onRequestPost(context) {
   if (!row) return refused(404);
   const nowIso = new Date(context.nowMs ?? Date.now()).toISOString();
   if (action === "send_invite") return sendInvite(context, env, id, form, context.nowMs ?? Date.now());
+  if (action === "send_reminder") return sendReminder(context, env, id, form, context.nowMs ?? Date.now());
   const note = stripFormatChars(String(form.get("note") ?? "").replace(/\r\n?/g, "\n")).trim().slice(0, 2000);
   if (action === "note") {
     if (row.status === "claimed") return redirect(`/admin/invites#r${id}`);   // a trimmed row takes no note

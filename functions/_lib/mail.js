@@ -20,9 +20,13 @@ export const POSTMARK_URL = "https://api.postmarkapp.com/email";
 export const MESSAGE_STREAM = "outbound";
 export const DEFAULT_FROM = "Bervo <hello@bervo.ai>";
 
-// The words. INVITE is Allen's approved §5 text (INVITE_FORM_COPY_V1.md, 11-10), moved here unchanged from
-// admin/invites.js. Every other template is a [GTM] placeholder (GTM's draft NEXT_USER_WORDS_V1.md §A, not
-// approved): render() refuses any text that still carries "[GTM]", so a placeholder can never reach a customer.
+// The words: Allen approved them 11-11 ("I agree with all of your recos and approve all", relayed by GTM), from
+// daily-dashboard docs/marketing/onboarding/NEXT_USER_WORDS_V1.md §A (1d0ca221), filled in word for word:
+//   invite         = INVITE_FORM_COPY_V1.md §5 (approved 11-10) + §A1's added line, placed right after the link
+//                    paragraph ("Here's your personal setup link:" + the link);
+//   reminder_day3  = §A2 Day 3;  reminder_day10 = §A2 Day 10 (each carries a FRESH link; the earlier one is dead);
+//   loaded         = §A3 (the "{billing line, Allen 5.2}" placeholder is left out: still open with Allen).
+// render() still refuses any text carrying "[GTM]", so a future placeholder can never reach a customer.
 export const TEMPLATES = {
   invite: {
     subject: "Your Bervo invite",
@@ -35,6 +39,8 @@ export const TEMPLATES = {
       "Here's your personal setup link:",
       "{link}",
       "",
+      "You'll need about 20 minutes, your phone, and the sign-in for the email account you want Bervo to read.",
+      "",
       "It works once and stays open for 14 days. Setup takes you through connecting your email, choosing how much " +
         "history to load, adding your AI API key and texting the Bervo line. Stopped partway? Sign in with your email " +
         "and password and you'll pick up where you left off.",
@@ -44,25 +50,50 @@ export const TEMPLATES = {
       "Allen",
     ].join("\n"),
   },
-  // Spec decision 3 (day 3 and day 10 if the invite is not taken up): PENDING ALLEN. The trigger is not built;
-  // the words are GTM's unapproved draft. See the report for why the reminder carries no link.
   reminder_day3: {
-    subject: "[GTM] Your Bervo setup link",
-    fields: ["first_name", "sent_date", "expiry_date"],
-    body: "[GTM] Hi {first_name}, a reminder: your setup link is in our email of {sent_date} and stays open until " +
-      "{expiry_date}. Allen",
+    subject: "Your Bervo setup link",
+    fields: ["first_name", "link", "expiry_date"],
+    body: [
+      "Hi {first_name},",
+      "",
+      "Just a reminder that your Bervo setup is waiting. Here's a fresh link (the one in my earlier email no longer works):",
+      "{link}",
+      "",
+      "It stays open until {expiry_date}. If now isn't a good time, reply and I'll send a new one when you're ready.",
+      "",
+      "Allen",
+    ].join("\n"),
   },
   reminder_day10: {
-    subject: "[GTM] Your Bervo link closes {expiry_date}",
-    fields: ["first_name", "sent_date", "expiry_date"],
-    body: "[GTM] Hi {first_name}, your setup link (our email of {sent_date}) closes on {expiry_date}. Allen",
+    subject: "Still want to set up Bervo?",
+    fields: ["first_name", "link", "expiry_date"],
+    body: [
+      "Hi {first_name},",
+      "",
+      "Here's a new setup link, in case the earlier ones got buried:",
+      "{link}",
+      "",
+      "It stays open until {expiry_date}. If you'd rather start later, reply and I'll send one then.",
+      "",
+      "Allen",
+    ].join("\n"),
   },
-  // "You're loaded": the trigger (a customer server telling this sender) is PENDING the design decision in the
-  // report; the words are GTM's unapproved draft.
   loaded: {
-    subject: "[GTM] Bervo is ready",
-    fields: ["first_name", "dashboard_link"],
-    body: "[GTM] Hi {first_name}, Bervo has read your recent email and your dashboard is ready: {dashboard_link} Allen",
+    subject: "Bervo is ready",
+    fields: ["first_name", "start_date", "dashboard_link"],
+    body: [
+      "Hi {first_name},",
+      "",
+      "Bervo has read your email back to {start_date}, and your dashboard is ready:",
+      "{dashboard_link}",
+      "",
+      "Start with Today. It shows your briefing, your schedule and anything waiting on you. Your first morning brief " +
+        "will be on your dashboard tomorrow morning.",
+      "",
+      "If anything looks wrong, use Feedback at the top of the dashboard, or text Bervo.",
+      "",
+      "Allen",
+    ].join("\n"),
   },
 };
 
@@ -130,13 +161,19 @@ function logLine(say, o) {
 // Send one email. -> { ok, status: "sent"|"failed", message_id, error_code, why }.
 // Records one invite_mail row (never the address or the body) and logs one line. Throws MailError before any
 // network call when the template, a field or the settings are wrong (nothing recorded, nothing sent).
-export async function sendTemplate(env, { template, to, fields, requestId, nowMs = Date.now(), fetchImpl = fetch,
-  say = console.log }) {
+// The email belongs to an invite request (requestId: invite, reminders) or to a customer server (tenant: the
+// "you're loaded" email, relayed by the router; the request row has been trimmed by then).
+export const TENANT_RE = /^[a-z0-9][a-z0-9-]{0,30}$/;   // provision_profile.py tenant slug (invites.js SLUG_RE)
+
+export async function sendTemplate(env, { template, to, fields, requestId = null, tenant = null, nowMs = Date.now(),
+  fetchImpl = fetch, say = console.log }) {
   const off = sendingOff(env);
   if (off) throw new MailError("off");
   const address = String(to || "").trim().toLowerCase();
   if (!ADDRESS_RE.test(address) || address.length > 254) throw new MailError("bad_address");
-  if (!Number.isInteger(requestId) || requestId < 1) throw new MailError("bad_request_id");
+  const byRequest = Number.isInteger(requestId) && requestId >= 1;
+  const byTenant = typeof tenant === "string" && TENANT_RE.test(tenant);
+  if (byRequest === byTenant) throw new MailError("bad_owner");     // exactly one of the two
   const { subject, text } = render(template, fields);
   const toHash = await addressHash(env.RATE_LIMIT_SALT, address);
   const payload = {
@@ -172,8 +209,9 @@ export async function sendTemplate(env, { template, to, fields, requestId, nowMs
     errorCode = -1; why = "Postmark could not be reached";
   }
   const nowIso = new Date(nowMs).toISOString();
-  await env.DB.prepare("INSERT INTO invite_mail (request_id, template, address_hash, message_id, status, error_code, created_at) " +
-    "VALUES (?, ?, ?, ?, ?, ?, ?)").bind(requestId, template, toHash, messageId, status, errorCode, nowIso).run();
+  await env.DB.prepare("INSERT INTO invite_mail (request_id, tenant, template, address_hash, message_id, status, error_code, created_at) " +
+    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)").bind(byRequest ? requestId : null, byTenant ? tenant : null, template, toHash, messageId,
+    status, errorCode, nowIso).run();
   logLine(say, { template, to_hash: toHash, message_id: messageId, result: status, error_code: errorCode });
   return { ok: status === "sent", status, message_id: messageId, error_code: errorCode, why };
 }
@@ -205,7 +243,7 @@ export async function applyEvent(db, rec, nowMs = Date.now()) {
   return "applied";
 }
 
-// ---------- reminders (spec decision 3, PENDING ALLEN: the rule only; nothing calls it yet) ----------
+// ---------- reminders (spec decision 3, Allen 11-11: a "Send reminder" button on the admin page when one is due) ----------
 export const REMINDER_DAYS = { reminder_day3: 3, reminder_day10: 10 };
 
 // Which reminder is due for one invite, or null. mails = that request's invite_mail rows.
@@ -228,4 +266,14 @@ export function reminderDue(request, mails, nowMs) {
     }
   }
   return null;
+}
+
+// The closing date printed in a reminder: the fresh link was minted on the Mini by owner_invite_link.py (valid 14
+// days from then) shortly before Allen pressed Send. The page can't know the exact minute, so it states the
+// date of (now + 13 days) in the request's time zone (UTC when unknown): never later than the real expiry as long
+// as the link was minted within the last 24 hours (the page says so next to the button).
+export function reminderExpiryDate(nowMs, timeZone) {
+  let tz = "UTC";
+  try { if (timeZone) { new Intl.DateTimeFormat("en-US", { timeZone }); tz = timeZone; } } catch { tz = "UTC"; }
+  return new Intl.DateTimeFormat("en-US", { month: "long", day: "numeric", timeZone: tz }).format(new Date(nowMs + 13 * 86400000));
 }
