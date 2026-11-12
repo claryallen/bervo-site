@@ -40,6 +40,10 @@
     otherEmail.disabled = !epOther.checked;          // a hidden answer is never sent
   };
   epOther.addEventListener("change", showOther); showOther();
+  // Computer(s): "Neither (iPad and/or phone only)" and a computer can't both be ticked (Allen 11-11).
+  var cpNone = document.getElementById("cp-none"), cpPcs = [document.getElementById("cp-windows"), document.getElementById("cp-mac")];
+  cpNone.addEventListener("change", function () { if (cpNone.checked) cpPcs.forEach(function (c) { c.checked = false; }); });
+  cpPcs.forEach(function (c) { c.addEventListener("change", function () { if (c.checked) cpNone.checked = false; }); });
 
   function errFor(el) { return el.closest("label.f, fieldset").querySelector(".err"); }
   function set(el, msg) { errFor(el).textContent = msg || ""; return !msg; }
@@ -51,9 +55,9 @@
     });
     var em = document.getElementById("email"), v = em.value.trim();
     ok = set(em, !v ? MSG.required : (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v) ? "" : MSG.email)) && ok;
-    ["has_assistant", "email_provider", "phone", "plan"].forEach(function (n) {
+    ["has_assistant", "email_provider", "computer", "phone", "plan"].forEach(function (n) {
       var picked = form.querySelector("input[name=" + n + "]:checked");
-      ok = set(document.getElementById("fs-" + n), picked ? "" : (n === "email_provider" ? MSG.choiceAny : MSG.choice)) && ok;
+      ok = set(document.getElementById("fs-" + n), picked ? "" : (n === "email_provider" || n === "computer" ? MSG.choiceAny : MSG.choice)) && ok;
     });
     if (epOther.checked) ok = set(otherEmail, otherEmail.value.trim() ? "" : MSG.required) && ok;
     ok = set(about, !about.value.trim() ? MSG.required : (about.value.length > 1000 ? MSG.tooLong : "")) && ok;

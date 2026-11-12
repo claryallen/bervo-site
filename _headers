@@ -22,3 +22,11 @@
 /invite-thanks
   ! Content-Security-Policy
   Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
+
+# The form's scripts: always revalidate, so a visitor never runs an older script against a newer page (11-11:
+# the default 4-hour cache kept the old /invite.js after a publish). The page also loads them with ?v=N.
+/invite.js
+  Cache-Control: no-cache
+
+/invite-thanks.js
+  Cache-Control: no-cache

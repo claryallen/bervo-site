@@ -58,6 +58,13 @@ function fmt(iso) { return iso ? escapeHtml(String(iso).replace("T", " ").slice(
 
 const PLAN_NAMES = { standard: "Standard $49/mo", private: "Private $99/mo" };
 const PROVIDER_NAMES = { google: "Google", microsoft: "Microsoft 365 or Exchange", other: "Other" };
+const COMPUTER_NAMES = { windows: "Windows PC", mac: "Mac", none: "Neither (iPad and/or phone only)" };
+function computerList(json) {
+  let list;
+  try { list = JSON.parse(json || "[]"); } catch { return String(json || ""); }
+  return Array.isArray(list) ? list.map((x) => COMPUTER_NAMES[x] || String(x)).join(", ") : String(json);
+}
+
 function providerList(json) {
   let list;
   try { list = JSON.parse(json || "[]"); } catch { return String(json || ""); }
@@ -117,6 +124,7 @@ ${r.approved_at ? `<dt>Approved</dt><dd>${fmt(r.approved_at)}</dd>` : ""}${r.inv
 <dt>Has an assistant</dt><dd>${e(r.has_assistant)}</dd>
 <dt>Email provider(s)</dt><dd>${e(providerList(r.email_providers))}</dd>
 ${r.other_email ? `<dt>Other email account(s)</dt><dd>${e(r.other_email)}</dd>` : ""}
+${r.computers ? `<dt>Computer(s)</dt><dd>${e(computerList(r.computers))}</dd>` : ""}
 <dt>Phone</dt><dd>${e(r.phone)}</dd>
 <dt>Plan</dt><dd>${e(PLAN_NAMES[r.plan] || r.plan)}</dd>
 <dt>Time zone</dt><dd>${e(r.timezone || "(not sent)")}</dd>

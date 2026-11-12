@@ -9,13 +9,14 @@ export const NOT_NOW_KEEP_DAYS = 90;           // "not now", expired and unanswe
 // Allen 11-10 ("Yes, 90 days"): once the customer is live (claimed) a request keeps only id, cohort, status and
 // dates, plus the plan they chose (like cohort). TRIM_SET nulls everything else; the schema's table CHECK refuses a claimed row that still holds any of it.
 export const TRIMMED_COLUMNS = ["first_name", "last_name", "email", "company", "role", "has_assistant",
-  "email_providers", "other_email", "phone", "timezone", "about", "referral", "slug", "note"];
+  "email_providers", "other_email", "computers", "phone", "timezone", "about", "referral", "slug", "note"];
 export const OTHER_EMAIL_MAX = 40;             // "What other email account(s)?" (shown when Other is ticked; 0003 migration)
 export const TRIM_SET = TRIMMED_COLUMNS.map((c) => `${c} = NULL`).join(", ");
 export const MIN_FILL_MS = 2000;               // a form filled faster than this is a bot (spec §A)
 export const REFERRALS = ["allen"];            // bervo.ai/invite?from=allen -> "personal invite" (display only)
 export const PROVIDERS = ["google", "microsoft", "other"];   // onboarding.py's account providers; stored in this order
 export const PLANS = ["standard", "private"];               // "Which plan would you like?" (Standard listed first)
+export const COMPUTERS = ["windows", "mac", "none"];         // "Which type of computer(s)?" (Allen 11-11; 0004); "none" = iPad and/or phone only
 export const PHONES = ["iphone", "android"];                 // onboarding.PHONES
 export const YES_NO = ["yes", "no"];
 export const STATUSES = ["new", "approved", "not_now", "invited", "claimed", "expired"];
@@ -86,6 +87,10 @@ export function validateInvite(form) {
   } else {
     v.other_email = null;
   }
+  // Computer(s): checkboxes, at least one, stored in COMPUTERS order; "none" never alongside a computer.
+  const comps = new Set(getAll("computer").map((x) => clean(x).toLowerCase()));
+  if (!comps.size || [...comps].some((x) => !COMPUTERS.includes(x)) || (comps.has("none") && comps.size > 1)) errors.push("computer");
+  v.computers = JSON.stringify(COMPUTERS.filter((x) => comps.has(x)));
   pick("phone", PHONES);
   pick("plan", PLANS);
   const about = clean(get("about"), true);
@@ -167,10 +172,10 @@ export function cohortFor(referral) { return referral === "allen" ? "private" : 
 export async function insertInvite(db, v, nowIso) {
   return db.prepare(
     "INSERT INTO invite_requests (created_at, first_name, last_name, email, company, role, has_assistant, " +
-    "email_providers, other_email, phone, plan, timezone, about, referral, cohort, privacy_agreed_at, status, status_changed_at) " +
-    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', ?)"
+    "email_providers, other_email, computers, phone, plan, timezone, about, referral, cohort, privacy_agreed_at, status, status_changed_at) " +
+    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', ?)"
   ).bind(nowIso, v.first_name, v.last_name, v.email, v.company, v.role, v.has_assistant, v.email_providers,
-    v.other_email ?? null, v.phone, v.plan, v.timezone, v.about, v.referral, cohortFor(v.referral), nowIso, nowIso).run();
+    v.other_email ?? null, v.computers ?? null, v.phone, v.plan, v.timezone, v.about, v.referral, cohortFor(v.referral), nowIso, nowIso).run();
 }
 
 // ---------- Cloudflare Access JWT (defence in depth behind the Access application) ----------
