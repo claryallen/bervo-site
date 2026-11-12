@@ -282,7 +282,7 @@ test("M7 Send is offered and Copy stays: sending on -> Send button + Copy; sendi
   assert.equal(off.status, 200);
   assert.ok(!off.body.includes('value="send_invite"'));
   assert.ok(off.body.includes("Sending is off (the Postmark key is not set)"));
-  assert.ok(off.body.includes("Copy invite email") && off.body.includes("const TEMPLATE ="), "Copy still works with no key");
+  assert.ok(off.body.includes("Copy invite email") && off.body.includes("const TEMPLATES ="), "Copy still works with no key");
   assert.equal((off.body.match(/<script/g) || []).length, 1);
 });
 
@@ -635,4 +635,62 @@ test("M24 admin Send / reminder: with a slug on the request, the link must be on
   assert.equal(r.location, `/admin/invites?sent=host&r=${id}#r${id}`);
   assert.equal(calls.length, 1);
   assert.ok(mail.linkMatchesSlug(LINK, null) && mail.linkMatchesSlug(LINK, "zz-test") && !mail.linkMatchesSlug(LINK, "zz"));
+});
+
+// ---------- CR-DEVICEWORDS.1: the iPhone-without-a-Mac paragraph (invite only) ----------
+const DW_NOTE = "One note before you start: Bervo reads iPhone texts through its app for a MacBook, iMac or Mac mini. Without a Mac, " +
+  "Bervo still works with your email, calendar and dashboard, and you can text Bervo anytime. Your own texts just won't come in.";
+const DW_BASE = mail.render("invite", { first_name: "Pat", link: LINK }).text;
+
+test("DW1 render matrix: the paragraph appears only for iphone and no Mac, right after the link paragraph, else byte-identical", () => {
+  let n = 0;
+  for (const phone of ["iphone", "android"]) for (const computers of ['["mac"]', '["windows"]', '["windows","mac"]', '["none"]', null]) {
+    const text = mail.render("invite", { first_name: "Pat", link: LINK, phone, computers }).text;
+    const want = phone === "iphone" && (computers === '["windows"]' || computers === '["none"]');
+    assert.equal(text.includes(DW_NOTE), want, `${phone} ${computers}`);
+    if (!want) assert.equal(text, DW_BASE, `${phone} ${computers} unchanged`);
+    else assert.equal(text, DW_BASE.replace(`${LINK}\n\n`, `${LINK}\n\n${DW_NOTE}\n\n`));
+    n++;
+  }
+  assert.equal(n, 10);
+  const t = mail.render("invite", { first_name: "Pat", link: LINK, phone: "iphone", computers: '["none"]' }).text;
+  assert.ok(t.indexOf(LINK) < t.indexOf(DW_NOTE) && t.indexOf(DW_NOTE) < t.indexOf("You'll need about 20 minutes"));
+  assert.equal(mail.render("invite", { first_name: "Pat", link: LINK, phone: "iphone", computers: "not json" }).text, DW_BASE);
+  assert.equal(mail.render("invite", { first_name: "Pat", link: LINK, phone: "iphone", computers: "" }).text, DW_BASE);
+});
+
+test("DW2 reminders never carry the paragraph, even for iphone + none", () => {
+  for (const tpl of ["reminder_day3", "reminder_day10"]) {
+    const t = mail.render(tpl, { first_name: "Pat", link: LINK, expiry_date: "November 25", phone: "iphone", computers: '["none"]' }).text;
+    assert.ok(!t.includes("One note before you start"), tpl);
+  }
+});
+
+test("DW3 admin Send passes the stored phone/computers (not the browser's); log and rows hold no body", async () => {
+  for (const [phone, computers, want] of [["iphone", '["none"]', true], ["iphone", '["windows"]', true], ["iphone", '["mac"]', false],
+    ["iphone", '["windows","mac"]', false], ["iphone", null, false], ["android", '["none"]', false]]) {
+    const db = makeD1();
+    const id = seed(db);
+    db.raw.prepare("UPDATE invite_requests SET phone = ?, computers = ? WHERE id = ?").run(phone, computers, id);
+    const calls = [], logs = [];
+    // the browser tries to claim a Mac; it must be ignored
+    const r = await adminPost(db, { id: String(id), action: "send_invite", link: LINK, phone: "iphone", computers: '["mac"]' }, { mailFetch: postmark("ok", calls), logs });
+    assert.equal(r.location, `/admin/invites?sent=ok&r=${id}#r${id}`);
+    assert.equal(calls[0].body.TextBody.includes(DW_NOTE), want, `${phone} ${computers}`);
+    const kept = JSON.stringify(mailRows(db)) + logs.join("\n");
+    assert.ok(!kept.includes("One note before") && !kept.includes("Without a Mac"));
+  }
+});
+
+test("DW4 Copy fallback shows the same text as Send, per row", async () => {
+  const db = makeD1();
+  const a = seed(db, { email: "a@example.com", first: "Ann" });
+  const b = seed(db, { email: "b@example.com", first: "Bo" });
+  db.raw.prepare("UPDATE invite_requests SET computers = '[\"none\"]' WHERE id = ?").run(a);
+  db.raw.prepare("UPDATE invite_requests SET computers = '[\"mac\"]' WHERE id = ?").run(b);
+  const { body } = await adminGet(db);
+  assert.ok(body.includes('data-first="Ann" data-variant="note"'));
+  assert.ok(body.includes('data-first="Bo" data-variant="plain"'));
+  assert.ok(body.includes(JSON.stringify(mail.inviteBody("iphone", '["none"]')).replace(/</g, "\\u003c")), "the page embeds the same text Send builds");
+  assert.equal(admin.INVITE_EMAIL_TEMPLATE, mail.TEMPLATES.invite.body, "plain Copy unchanged");
 });

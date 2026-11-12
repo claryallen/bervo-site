@@ -97,6 +97,27 @@ export const TEMPLATES = {
   },
 };
 
+// CR-DEVICEWORDS.1 (Allen 11-12: invite email only, not the reminders). DEVICE_WORDS_V1.md section 1, word for word.
+// Shown only when the request has an iPhone and "mac" is NOT among the stored computers. computers NULL (a request
+// from before the question existed) or unreadable: we don't know, so no line.
+export const IPHONE_NO_MAC_NOTE =
+  "One note before you start: Bervo reads iPhone texts through its app for a MacBook, iMac or Mac mini. Without a Mac, " +
+  "Bervo still works with your email, calendar and dashboard, and you can text Bervo anytime. Your own texts just won't come in.";
+
+export function needsIphoneNoMacNote(phone, computers) {
+  if (phone !== "iphone" || computers == null || computers === "") return false;
+  let list;
+  try { list = typeof computers === "string" ? JSON.parse(computers) : computers; } catch { return false; }
+  return Array.isArray(list) && !list.includes("mac");
+}
+
+// The invite body with {first_name}/{link} still unfilled: the paragraph goes right after the link paragraph.
+export function inviteBody(phone, computers) {
+  const body = TEMPLATES.invite.body;
+  if (!needsIphoneNoMacNote(phone, computers)) return body;
+  return body.replace("{link}\n", "{link}\n\n" + IPHONE_NO_MAC_NOTE + "\n");
+}
+
 // A set-password link as tools/tenant/owner_invite_link.py prints it: https://<host>.bervo.ai/set-password?t=<token>
 // (token = secrets.token_urlsafe(32), 43 characters). Nothing else is accepted as {link}.
 export const INVITE_LINK_RE = /^https:\/\/[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*\.bervo\.ai\/set-password\?t=[A-Za-z0-9_-]{32,128}$/;
@@ -127,7 +148,8 @@ export function render(template, fields) {
   for (const f of t.fields) if (!fieldOk(f, fields?.[f])) throw new MailError(`bad_field:${f}`);
   const fill = (s) => s.replace(/\{([a-z_]+)\}/g, (m, k) => (t.fields.includes(k) ? fields[k] : m));
   const subject = fill(t.subject);
-  const text = fill(t.body);
+  // phone/computers are optional, read only for the invite, and never printed: they only decide whether the note shows.
+  const text = fill(template === "invite" ? inviteBody(fields?.phone, fields?.computers) : t.body);
   if (subject.includes("[GTM]") || text.includes("[GTM]")) throw new MailError("placeholder");
   if (/\{[a-z_]+\}/.test(subject + text)) throw new MailError("unfilled");
   return { subject, text };
