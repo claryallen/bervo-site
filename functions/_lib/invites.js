@@ -5,7 +5,7 @@
 export const ABOUT_MAX = 1000;                 // "Tell us about you and your business" (Allen 11-10)
 export const RATE_LIMIT_PER_DAY = 5;           // per salted IP hash per UTC day (spec §A)
 export const RATE_KEEP_DAYS = 7;               // salted hashes are dropped after 7 days (spec §A)
-export const NOT_NOW_KEEP_DAYS = 90;           // "not now" and expired requests are deleted 90 days after that status
+export const NOT_NOW_KEEP_DAYS = 90;           // "not now", expired and unanswered (new/approved, never invited) requests are deleted 90 days after their last status change (Allen 11-11)
 // Allen 11-10 ("Yes, 90 days"): once the customer is live (claimed) a request keeps only id, cohort, status and
 // dates, plus the plan they chose (like cohort). TRIM_SET nulls everything else; the schema's table CHECK refuses a claimed row that still holds any of it.
 export const TRIMMED_COLUMNS = ["first_name", "last_name", "email", "company", "role", "has_assistant",
@@ -115,7 +115,7 @@ export async function countRequest(db, salt, ip, nowMs) {
 export async function pruneOld(db, nowMs) {
   await db.prepare("DELETE FROM invite_rate WHERE day < ?").bind(utcDay(nowMs, -RATE_KEEP_DAYS)).run();
   const cutoff = new Date(nowMs - NOT_NOW_KEEP_DAYS * 86400000).toISOString();
-  await db.prepare("DELETE FROM invite_requests WHERE status IN ('not_now', 'expired') AND status_changed_at < ?")
+  await db.prepare("DELETE FROM invite_requests WHERE status IN ('new', 'approved', 'not_now', 'expired') AND status_changed_at < ?")
     .bind(cutoff).run();
   // CR-WELCOMEEMAIL.1: an email record goes with its request (and clears its address hash once trimmed).
   try {

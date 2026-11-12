@@ -583,6 +583,19 @@ test("expired and not-now rows are deleted 90 days after that status; claimed an
   assert.equal(rows(db).find((r) => r.id === 3).status, "expired");
 });
 
+test("unanswered requests (new, approved) are deleted 90 days after their last change; invited kept (Allen 11-11)", async () => {
+  const db = await seeded();
+  const jwt = await makeJwt({});
+  for (let i = 0; i < 4; i++) await post(db, validFields({ first_name: "U" + i }), { ip: "198.51.100." + (170 + i) });
+  const old = new Date(NOW - 91 * 86400000).toISOString(), recent = new Date(NOW - 89 * 86400000).toISOString();
+  db.raw.prepare("UPDATE invite_requests SET status='new', status_changed_at=? WHERE id=1").run(old);
+  db.raw.prepare("UPDATE invite_requests SET status='new', status_changed_at=? WHERE id=2").run(recent);
+  db.raw.prepare("UPDATE invite_requests SET status='approved', status_changed_at=? WHERE id=3").run(old);
+  db.raw.prepare("UPDATE invite_requests SET status='invited', status_changed_at=? WHERE id=4").run(old);
+  await adminGet(db, { jwt });
+  assert.deepEqual(rows(db).map((r) => r.id), [2, 4, 5, 6]);
+});
+
 // ---------- /invite page script: nothing red at load, fail closed on press (GTM check of preview 0d44c1b0) ----------
 import vm from "node:vm";
 

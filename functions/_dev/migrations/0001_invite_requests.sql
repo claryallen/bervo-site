@@ -1,7 +1,7 @@
 -- D1 schema for bervo.ai invite requests (CR-INVITEFLOW.1 part A).
 -- Allen pastes this into the D1 console (Cloudflare → Storage & Databases → D1 → bervo-invites → Console),
 -- once for the production database and once for the preview database. Safe to run twice.
--- Retention: 'not_now' and 'expired' rows are deleted 90 days after status_changed_at; 'claimed' rows are trimmed
+-- Retention: 'new', 'approved' (unanswered), 'not_now' and 'expired' rows are deleted 90 days after status_changed_at; 'claimed' rows are trimmed
 -- (admin page on Mark claimed, and tools/tenant/invite_retention.py in daily-dashboard).
 
 CREATE TABLE IF NOT EXISTS invite_requests (
