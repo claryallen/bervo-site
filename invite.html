@@ -1,0 +1,67 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>Request an Invite · Bervo</title><style>
+:root{--bg:#f6f8fb;--surface:#fff;--fg:#0f1a2b;--muted:#566378;--line:#dde4ee;--accent:#2b609a;--accent-ink:#fff;--err:#b3261e}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif}
+.wrap{max-width:760px;margin:0 auto;padding:24px 16px 64px}nav{font-size:.9rem;margin-bottom:18px}nav a{margin-right:1rem}a{color:var(--accent)}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:24px}
+.eyebrow{font:500 12px/1 ui-monospace,Menlo,monospace;letter-spacing:.08em;text-transform:uppercase;color:var(--accent);margin-bottom:10px}
+h1{font-size:1.9rem;margin:0}.muted{color:var(--muted)}.intro{margin:10px 0 0}
+form{display:grid;gap:16px;margin-top:20px}.row{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}
+@media (max-width:560px){.row{grid-template-columns:1fr}}
+label.f,fieldset{display:grid;gap:6px;align-content:start;font-weight:500;font-size:15px;border:0;padding:0;margin:0;min-width:0}
+legend{font-weight:500;font-size:15px;padding:0;margin-bottom:6px}
+input[type=text],input[type=email],textarea{font:inherit;font-weight:400;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--fg);width:100%}
+textarea{min-height:130px;resize:vertical}.help{font-weight:400;font-size:13px;color:var(--muted)}
+.radios{display:flex;gap:16px;flex-wrap:wrap;font-weight:400}.radios label{white-space:nowrap}
+.err{font-weight:400;font-size:13px;color:var(--err)}.err:empty{display:none}
+.counter{font:400 12.5px ui-monospace,Menlo,monospace;color:var(--muted);justify-self:end}
+.check{display:flex;gap:8px;align-items:flex-start;font-weight:400}
+.plans{display:grid;gap:10px}.plan{display:flex;gap:10px;align-items:baseline;font-weight:400;border:1px solid var(--line);border-radius:10px;padding:12px 14px;background:var(--bg);cursor:pointer}
+.plan input{flex:none;margin:0;position:relative;top:1px}.plan b{font-weight:600}.plan .help{font-size:14px}
+.hp{position:absolute;left:-10000px;width:1px;height:1px;overflow:hidden}
+button{font:inherit;font-weight:500;padding:10px 18px;border-radius:999px;border:1px solid var(--accent);background:var(--accent);color:var(--accent-ink);cursor:pointer}
+button:disabled{opacity:.6;cursor:default}footer{margin-top:2rem;font-size:.85rem;color:var(--muted)}[hidden]{display:none!important}
+</style></head><body><div class="wrap"><nav><a href="/">Bervo</a><a href="/terms">Terms of Service</a><a href="/privacy">Privacy Policy</a></nav>
+<section class="card">
+<div class="eyebrow">Privacy First. Business First.</div>
+<h1>Request an invite</h1>
+<p class="muted intro">Bervo is built for business owners and executives. Tell us a little about yourself and we'll be in touch, usually within two business days.</p>
+<noscript><p class="err">Please turn on JavaScript to send this form.</p></noscript>
+<form id="invite-form" method="post" action="/api/invite" novalidate>
+<div class="row">
+<label class="f" for="first_name">First name<input type="text" id="first_name" name="first_name" required maxlength="80" autocomplete="given-name"><span class="err"></span></label>
+<label class="f" for="last_name">Last name<input type="text" id="last_name" name="last_name" required maxlength="80" autocomplete="family-name"><span class="err"></span></label>
+</div>
+<label class="f" for="email">Preferred email<input type="email" id="email" name="email" required maxlength="254" autocomplete="email"><span class="help">The address you'd like to sign in with.</span><span class="err"></span></label>
+<div class="row">
+<label class="f" for="company">Company<input type="text" id="company" name="company" required maxlength="120" autocomplete="organization"><span class="err"></span></label>
+<label class="f" for="role">Your role<input type="text" id="role" name="role" required maxlength="120" autocomplete="organization-title"><span class="help">For example: owner, CEO, managing partner.</span><span class="err"></span></label>
+</div>
+<fieldset id="fs-has_assistant"><legend>Do you have an assistant?</legend>
+<div class="radios"><label><input type="radio" name="has_assistant" value="yes" required> Yes</label><label><input type="radio" name="has_assistant" value="no"> No</label></div>
+<span class="help">Your assistant can have their own sign-in to Bervo.</span><span class="err"></span></fieldset>
+<fieldset id="fs-email_provider"><legend>Email provider(s)</legend>
+<div class="radios"><label><input type="checkbox" name="email_provider" value="google"> Google (Gmail or Google Workspace)</label><label><input type="checkbox" name="email_provider" value="microsoft"> Microsoft 365 or Exchange</label><label><input type="checkbox" name="email_provider" value="other"> Other</label></div>
+<span class="err"></span></fieldset>
+<fieldset id="fs-phone"><legend>Which phone do you use?</legend>
+<div class="radios"><label><input type="radio" name="phone" value="iphone" required> iPhone</label><label><input type="radio" name="phone" value="android"> Android</label></div>
+<span class="err"></span></fieldset>
+<fieldset id="fs-plan"><legend>Which plan would you like?</legend>
+<div class="plans">
+<label class="plan"><input type="radio" name="plan" value="standard" required><span><b>Standard $49/mo</b> <span class="help">Private server space. Add texts, voice, assistants anytime. Upgrade to Private anytime.</span></span></label>
+<label class="plan"><input type="radio" name="plan" value="private"><span><b>Private $99/mo</b> <span class="help">Private server. Includes texts, voice, and your first assistant. Downgrade to Standard anytime.</span></span></label>
+</div>
+<span class="err"></span></fieldset>
+<label class="f" for="about">Tell us about you and your business<span class="help">What type of company and what are the biggest needs or pain points you have related to emails, texts, calendar, contacts, commitments, and projects? You can also ask any question here. We'll get back to you.</span><textarea id="about" name="about" required maxlength="1000" rows="6"></textarea><span class="counter" id="about-count">0 of 1,000</span><span class="err"></span></label>
+<div class="hp" aria-hidden="true"><label for="website">Website<input type="text" id="website" name="website" tabindex="-1" autocomplete="off"></label></div>
+<input type="hidden" name="t" id="t" value="">
+<input type="hidden" name="tz" id="tz" value="">
+<input type="hidden" name="referral" id="referral" value="">
+<div><label class="check"><input type="checkbox" id="privacy" name="privacy" value="yes" required> <span>I agree to the <a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a></span></label><span class="err" id="privacy-err"></span></div>
+<div id="turnstile"></div>
+<div><button type="submit" id="submit">Request an Invite</button></div>
+<p class="err" id="send-err" hidden>We couldn't send your request. Please check your connection and try again.</p>
+</form>
+</section>
+<footer>© 2026 Bervo LLC</footer></div>
+<script src="/invite.js"></script>
+</body></html>
