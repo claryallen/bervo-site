@@ -9,7 +9,7 @@ form{display:grid;gap:16px;margin-top:20px}.row{display:grid;grid-template-colum
 @media (max-width:560px){.row{grid-template-columns:1fr}}
 label.f,fieldset{display:grid;gap:6px;align-content:start;font-weight:500;font-size:15px;border:0;padding:0;margin:0;min-width:0}
 legend{font-weight:500;font-size:15px;padding:0;margin-bottom:6px}
-input[type=text],input[type=email],textarea{font:inherit;font-weight:400;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--fg);width:100%}
+input[type=text],input[type=email],textarea,select{font:inherit;font-weight:400;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--fg);width:100%}
 textarea{min-height:130px;resize:vertical}.help{font-weight:400;font-size:13px;color:var(--muted)}
 .radios{display:flex;gap:16px;flex-wrap:wrap;font-weight:400}.radios label{white-space:nowrap}
 .err{font-weight:400;font-size:13px;color:var(--err)}.err:empty{display:none}
@@ -56,6 +56,8 @@ button:disabled{opacity:.6;cursor:default}footer{margin-top:2rem;font-size:.85re
 <label class="plan"><input type="radio" name="plan" value="private"><span><b>Private $99/mo</b> <span class="help">Private server. Includes texts, voice, and your first assistant. Downgrade to Standard anytime. AI key costs additional. Bervo is free until January 5, 2027. Cancel anytime.</span></span></label>
 </div>
 <span class="err"></span></fieldset>
+<label class="f" for="heard_from">How did you hear about Bervo?<select id="heard_from" name="heard_from" required><option value="">Choose one</option><option value="referral">Referred by someone</option><option value="social">Social Media</option><option value="search">Web Search (Google, etc.)</option><option value="ai">AI told me (ChatGPT, Claude, Gemini, etc.)</option><option value="media">An article, podcast or newsletter</option><option value="ad">An online ad</option><option value="event">An event or talk</option><option value="other">Other</option></select><span class="err"></span></label>
+<label class="f" for="heard_detail" id="heard-wrap" hidden><span id="heard-detail-label">Who referred you?</span><input type="text" id="heard_detail" name="heard_detail" maxlength="200" autocomplete="off"><span class="err"></span></label>
 <label class="f" for="about">Tell us about you and your business<span class="help">What type of company and what are the biggest needs or pain points you have related to emails, texts, calendar, contacts, commitments, and projects? You can also ask any question here. We'll get back to you.</span><textarea id="about" name="about" required maxlength="1000" rows="6"></textarea><span class="counter" id="about-count">0 of 1,000</span><span class="err"></span></label>
 <div class="hp" aria-hidden="true"><label for="website">Website<input type="text" id="website" name="website" tabindex="-1" autocomplete="off"></label></div>
 <input type="hidden" name="t" id="t" value="">
@@ -68,5 +70,5 @@ button:disabled{opacity:.6;cursor:default}footer{margin-top:2rem;font-size:.85re
 </form>
 </section>
 <footer>© 2026 Bervo LLC</footer></div>
-<script src="/invite.js?v=3"></script>
+<script src="/invite.js?v=4"></script>
 </body></html>

@@ -16,7 +16,8 @@ import { _resetAccessKeyCache, ABOUT_MAX, escapeHtml, stripFormatChars, TRIMMED_
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const SCHEMA = readFileSync(path.join(ROOT, "functions/_dev/migrations/0001_invite_requests.sql"), "utf8") + "\n" +
   readFileSync(path.join(ROOT, "functions/_dev/migrations/0003_other_email.sql"), "utf8") + "\n" +
-  readFileSync(path.join(ROOT, "functions/_dev/migrations/0004_computers.sql"), "utf8");
+  readFileSync(path.join(ROOT, "functions/_dev/migrations/0004_computers.sql"), "utf8") + "\n" +
+  readFileSync(path.join(ROOT, "functions/_dev/migrations/0005_heard_from.sql"), "utf8");
 const NOW = Date.parse("2026-11-12T15:00:00Z");
 const ORIGIN = "https://bervo.ai";
 const TEAM = "bervo.cloudflareaccess.com";
@@ -70,7 +71,7 @@ const ENV = (db) => ({ DB: db, TURNSTILE_SECRET: "test-secret", RATE_LIMIT_SALT:
 function validFields(over = {}) {
   return {
     first_name: "Pat", last_name: "Sample", email: "Pat@Example.com", company: "Sample Co", role: "Owner",
-    has_assistant: "yes", email_provider: "google", computer: "mac", phone: "iphone", plan: "private", about: "I run a small firm.",
+    has_assistant: "yes", email_provider: "google", computer: "mac", phone: "iphone", plan: "private", heard_from: "search", about: "I run a small firm.",
     privacy: "yes", tz: "America/Chicago", referral: "", website: "", t: String(NOW - 10000),
     "cf-turnstile-response": "good-token", ...over,
   };
@@ -609,7 +610,8 @@ function pageSandbox({ config, search = "", onPlan } = {}) {
   const errHolder = (id) => ({ querySelector: () => (errs[id] ||= { textContent: "" }) });
   for (const id of ["t", "tz", "referral", "first_name", "last_name", "email", "company", "role", "about", "about-count",
     "privacy", "privacy-err", "submit", "fs-has_assistant", "fs-email_provider", "fs-phone", "fs-plan", "ep-other",
-    "other-wrap", "other_email", "fs-computer", "cp-windows", "cp-mac", "cp-none"]) mk(id);
+    "other-wrap", "other_email", "fs-computer", "cp-windows", "cp-mac", "cp-none", "heard_from", "heard-wrap",
+    "heard_detail", "heard-detail-label"]) mk(id);
   mk("send-err", { hidden: true });            // the page ships it with the hidden attribute
   let token = null;
   const radios = {};
@@ -637,7 +639,7 @@ function pageSandbox({ config, search = "", onPlan } = {}) {
   vm.runInContext(readFileSync(path.join(ROOT, "invite.js"), "utf8"), ctx);
   return { els, errs, form, radios, scripts, window, fill() {
     for (const id of ["first_name", "last_name", "company", "role", "about"]) els[id].value = "x";
-    els.email.value = "a@b.co"; els.privacy.checked = true;
+    els.email.value = "a@b.co"; els.privacy.checked = true; els.heard_from.value = "search";
     Object.assign(radios, { has_assistant: 1, email_provider: 1, computer: 1, phone: 1, plan: 1 });
   } };
 }
@@ -849,4 +851,49 @@ test("page: computer question before the phone question; Neither and a computer 
   assert.equal(p.els["cp-mac"].checked, false, "Neither clears Mac");
   p.els["cp-windows"].checked = true; p.els["cp-windows"].listeners.change();
   assert.equal(p.els["cp-none"].checked, false, "a computer clears Neither");
+});
+
+// ---------- "How did you hear about Bervo?" (options approved by Allen 11-11) ----------
+test("how you heard: required, allowlisted; Referred/Other need a detail; detail ignored otherwise; shown; trimmed", async () => {
+  const db = makeD1();
+  await post(db, validFields({ heard_from: "ai" }), { ip: "198.51.100.220" });
+  await post(db, validFields({ heard_from: "referral", heard_detail: "  Pat S\u200b " }), { ip: "198.51.100.221" });
+  await post(db, validFields({ heard_from: "other", heard_detail: "A friend's newsletter" }), { ip: "198.51.100.222" });
+  await post(db, validFields({ heard_from: "event", heard_detail: "ignored" }), { ip: "198.51.100.223" });
+  assert.deepEqual(rows(db).map((r) => [r.heard_from, r.heard_detail]),
+    [["ai", null], ["referral", "Pat S"], ["other", "A friend's newsletter"], ["event", null]]);
+  const missing = validFields(); delete missing.heard_from;
+  for (const [i, bad] of [missing, validFields({ heard_from: "tv" }), validFields({ heard_from: "referral", heard_detail: "" }),
+    validFields({ heard_from: "other", heard_detail: "x".repeat(201) })].entries())
+    assert.equal((await post(db, bad, { ip: "198.51.100." + (224 + i) })).location, "/invite?e=invalid", "refused " + i);
+  assert.equal(rows(db).length, 4);
+  const page = (await adminGet(db, { jwt: await makeJwt({}) })).body;
+  assert.ok(page.includes("<dt>How they heard</dt><dd>Referred by someone: Pat S</dd>"));
+  assert.ok(page.includes("<dd>AI told me (ChatGPT, Claude, Gemini, etc.)</dd>"));
+  assert.ok(TRIMMED_COLUMNS.includes("heard_from") && TRIMMED_COLUMNS.includes("heard_detail"));
+});
+
+test("page: the approved options in order after the plan; the detail box opens only for Referred/Other", async () => {
+  const html = readFileSync(path.join(ROOT, "invite.html"), "utf8");
+  const labels = ["Choose one", "Referred by someone", "Social Media", "Web Search (Google, etc.)", "AI told me (ChatGPT, Claude, Gemini, etc.)",
+    "An article, podcast or newsletter", "An online ad", "An event or talk", "Other"];
+  const sel = html.slice(html.indexOf('<select id="heard_from"'), html.indexOf("</select>"));
+  assert.deepEqual([...sel.matchAll(/<option value="[^"]*">([^<]*)<\/option>/g)].map((m) => m[1]), labels);
+  assert.ok(html.indexOf("Which plan would you like?") < html.indexOf("How did you hear about Bervo?"));
+  assert.ok(html.indexOf("How did you hear about Bervo?") < html.indexOf("Tell us about you and your business"));
+  const p = pageSandbox({ config: true });
+  assert.equal(p.els["heard-wrap"].hidden, true);
+  for (const [v, box] of [["referral", "Who referred you?"], ["other", "Please tell us where"]]) {
+    p.els.heard_from.value = v; p.els.heard_from.listeners.change();
+    assert.equal(p.els["heard-wrap"].hidden, false, v);
+    assert.equal(p.els["heard-detail-label"].textContent, box);
+  }
+  p.els.heard_from.value = "social"; p.els.heard_from.listeners.change();
+  assert.equal(p.els["heard-wrap"].hidden, true);
+  assert.equal(p.els.heard_detail.disabled, true);
+  await loadTurnstile(p);
+  p.fill(); p.els.heard_from.value = "referral"; p.els.heard_from.listeners.change();
+  assert.equal(press(p), true, "Referred with no name blocks the send");
+  p.els.heard_detail.value = "Pat";
+  assert.equal(press(p), false, "with a name it is sent");
 });
