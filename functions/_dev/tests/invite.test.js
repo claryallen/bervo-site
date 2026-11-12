@@ -434,7 +434,7 @@ test("approved copy on the page (INVITE_FORM_COPY_V1 §1-4): labels, radios, hel
     "Please keep this to 1,000 characters.", "Please agree to the Privacy Policy to send your request.", "Sending…", " of 1,000"])
     assert.ok(js.includes(t), t);
   for (const t of ["We've received your request. We read each one ourselves and will reply by email, usually within two business days.",
-    "In the meantime, learn more about Bervo.", '<a href="/">Bervo Home →</a>']   // Allen 11-11 (/why does not exist)) assert.ok(thanks.includes(t), t);
+    "In the meantime, learn more about Bervo.", '<a href="/">Bervo Home →</a>']) assert.ok(thanks.includes(t), t);
   const tjs = readFileSync(path.join(ROOT, "invite-thanks.js"), "utf8");
   assert.match(tjs, /textContent = "Thanks, " \+ n \+ "\."/);
   assert.ok(!/innerHTML/.test(tjs + js), "names never go in as markup");
