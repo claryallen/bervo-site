@@ -907,3 +907,13 @@ test("company and role are not asked, not stored and not shown (Allen 11-11)", a
   const page = (await adminGet(db, { jwt: await makeJwt({}) })).body;
   assert.ok(!page.includes("<dt>Company</dt>") && !page.includes("<dt>Role</dt>"));
 });
+
+test("admin page: its own buttons pass the CSRF check (Referrer-Policy same-origin), addresses are never obfuscated (11-11)", async () => {
+  const db = await seeded();
+  const jwt = await makeJwt({});
+  const res = await adminGet(db, { jwt });
+  assert.equal(res.headers.get("Referrer-Policy"), "same-origin", "no-referrer makes browsers send Origin: null on form posts");
+  assert.match(res.body, /<dt>Email<\/dt><dd><!--email_off-->pat@example\.com<!--\/email_off--><\/dd>/);
+  assert.match(res.body, /Signed in as <!--email_off-->[^<]+<!--\/email_off-->/);
+  assert.ok(!/<!--email_off-->[^<]*<[a-z]/i.test(res.body.replace(/<!--email_off-->[^<]*<!--\/email_off-->/g, "")), "markers balanced");
+});

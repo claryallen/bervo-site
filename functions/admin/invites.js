@@ -37,6 +37,13 @@ const TRANSITIONS = {
   expired: { to: "expired", from: ["invited"], stamp: null },
 };
 
+// Allen 11-11: "no-referrer" made browsers send Origin: null on this page's own form posts, so the CSRF check below
+// refused every button (checked in a browser: no-referrer -> Origin=null; same-origin -> the real origin). "same-origin"
+// still sends nothing to other sites.
+// Cloudflare's email obfuscation rewrites addresses to "[email protected]" and its decoder script is blocked by this
+// page's CSP, so every address is wrapped in email_off (the same marker privacy.html uses).
+function em(v) { return `<!--email_off-->${escapeHtml(v)}<!--/email_off-->`; }
+
 function page(body, status = 200, nonce = "") {
   const csp = "default-src 'none'; " + (nonce ? `script-src 'nonce-${nonce}'; ` : "") +
     "style-src 'unsafe-inline'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
@@ -44,7 +51,7 @@ function page(body, status = 200, nonce = "") {
     status,
     headers: {
       "Content-Type": "text/html; charset=utf-8", "Content-Security-Policy": csp, "Cache-Control": "no-store",
-      "X-Frame-Options": "DENY", "Referrer-Policy": "no-referrer", "X-Content-Type-Options": "nosniff",
+      "X-Frame-Options": "DENY", "Referrer-Policy": "same-origin", "X-Content-Type-Options": "nosniff",
       "X-Robots-Tag": "noindex, nofollow",
     },
   });
@@ -93,7 +100,7 @@ day (the email says the link stays open until ${e(reminderExpiryDate(nowMs, r.ti
 ${mailOff ? `<p class="off">Sending is off (${e(mailOff)}).</p>` : `<form method="post" action="/admin/invites" class="send">
 <input type="hidden" name="id" value="${e(r.id)}">
 <label>Fresh owner link <input name="link" type="url" autocomplete="off" required></label>
-<button name="action" value="send_reminder" type="submit">Send ${label.toLowerCase()}</button> to ${e(r.email)}
+<button name="action" value="send_reminder" type="submit">Send ${label.toLowerCase()}</button> to ${em(r.email)}
 </form>`}</div>`;
 }
 
@@ -121,7 +128,7 @@ ${r.approved_at ? `<dt>Approved</dt><dd>${fmt(r.approved_at)}</dd>` : ""}${r.inv
 <h2>#${e(r.id)} · ${e(r.first_name)} ${e(r.last_name)}${personal} <span class="status s-${e(r.status)}">${e(r.status)}</span></h2>
 <dl>
 <dt>Received</dt><dd>${fmt(r.created_at)}</dd>
-<dt>Email</dt><dd>${e(r.email)}</dd>
+<dt>Email</dt><dd>${em(r.email)}</dd>
 <dt>Has an assistant</dt><dd>${e(r.has_assistant)}</dd>
 <dt>Email provider(s)</dt><dd>${e(providerList(r.email_providers))}</dd>
 ${r.other_email ? `<dt>Other email account(s)</dt><dd>${e(r.other_email)}</dd>` : ""}
@@ -151,7 +158,7 @@ ${r.status === "approved" || r.status === "invited" ? `<div class="copy" data-fi
 <input type="hidden" name="id" value="${e(r.id)}">
 <label>Owner link (paste it here) <input class="link" name="link" type="url" autocomplete="off" required></label>
 ${mailOff ? `<p class="off">Sending is off (${e(mailOff)}). Copy the email below and send it yourself.</p>`
-    : `<button name="action" value="send_invite" type="submit">Send invite email</button> to ${e(r.email)}`}
+    : `<button name="action" value="send_invite" type="submit">Send invite email</button> to ${em(r.email)}`}
 </form>
 <p>Subject: <b>${e(INVITE_EMAIL_SUBJECT)}</b></p>
 <textarea class="mail" readonly rows="12"></textarea>
@@ -196,7 +203,7 @@ textarea,input{width:100%;box-sizing:border-box;font:inherit}label{display:block
 .copy{margin-top:.6rem;border-top:1px dashed #ccc;padding-top:.5rem}
 .mail-log{margin:.4rem 0;padding-left:1.2rem}.ms{border-radius:4px;padding:0 .4em;background:#eee}.ms-delivered{background:#d1fae5}
 .ms-bounced,.ms-complained,.ms-failed{background:#fee2e2}.remind{background:#eff6ff;border-radius:6px;padding:.3rem .7rem;margin:.5rem 0}.flash{background:#fef3c7;border-radius:6px;padding:.3rem .6rem}.off{color:#7a4b00}</style></head><body>
-<h1>Invite requests</h1><p>Signed in as ${escapeHtml(auth.email)} · Show: ${nav}</p>
+<h1>Invite requests</h1><p>Signed in as ${em(auth.email)} · Show: ${nav}</p>
 ${results.length ? results.map((r) => renderRow(r, mails.get(r.id), mailOff, r.id === flashId ? flash : "", nowMs)).join("\n") : "<p>None.</p>"}
 ${renderServerMail(await serverMails(env.DB))}
 <script nonce="${nonce}">
