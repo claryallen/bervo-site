@@ -11,7 +11,7 @@
 // Approve / Not now / Mark invited / the note change ONLY the D1 row. Nothing here touches a server; the
 // orchestrator reads an approved row with tools/tenant/invite_to_profile.py (daily-dashboard).
 import { checkAccess, escapeHtml, pruneOld, redirect, SLUG_RE, stripFormatChars, TRIM_SET } from "../_lib/invites.js";
-import { linkMatchesSlug, MailError, reminderDue, reminderExpiryDate, sendingOff, sendTemplate, TEMPLATES } from "../_lib/mail.js";
+import { inviteBody, linkMatchesSlug, needsIphoneNoMacNote, MailError, reminderDue, reminderExpiryDate, sendingOff, sendTemplate, TEMPLATES } from "../_lib/mail.js";
 
 // The invite email (words: daily-dashboard docs/marketing/site/INVITE_FORM_COPY_V1.md §5, approved by Allen 11-10;
 // they live in functions/_lib/mail.js now, the one sender). CR-WELCOMEEMAIL.1: **Send invite email** sends it
@@ -153,7 +153,7 @@ ${slugField}
 ${renderMail(mails)}
 ${flash ? `<p class="flash">${e(flash)}</p>` : ""}
 ${r.status === "invited" ? renderReminder(r, mails, mailOff, nowMs) : ""}
-${r.status === "approved" || r.status === "invited" ? `<div class="copy" data-first="${e(r.first_name)}">
+${r.status === "approved" || r.status === "invited" ? `<div class="copy" data-first="${e(r.first_name)}" data-variant="${needsIphoneNoMacNote(r.phone, r.computers) ? "note" : "plain"}">
 <form method="post" action="/admin/invites" class="send">
 <input type="hidden" name="id" value="${e(r.id)}">
 <label>Owner link (paste it here) <input class="link" name="link" type="url" autocomplete="off" required></label>
@@ -207,10 +207,10 @@ textarea,input{width:100%;box-sizing:border-box;font:inherit}label{display:block
 ${results.length ? results.map((r) => renderRow(r, mails.get(r.id), mailOff, r.id === flashId ? flash : "", nowMs)).join("\n") : "<p>None.</p>"}
 ${renderServerMail(await serverMails(env.DB))}
 <script nonce="${nonce}">
-const TEMPLATE = ${JSON.stringify(INVITE_EMAIL_TEMPLATE).replace(/</g, "\\u003c")};
+const TEMPLATES = { plain: ${JSON.stringify(INVITE_EMAIL_TEMPLATE).replace(/</g, "\\u003c")}, note: ${JSON.stringify(inviteBody("iphone", '["none"]')).replace(/</g, "\\u003c")} };
 for (const box of document.querySelectorAll(".copy")) {
   const link = box.querySelector(".link"), mail = box.querySelector(".mail"), done = box.querySelector(".copied");
-  const fill = () => { mail.value = TEMPLATE.split("{first_name}").join(box.dataset.first).split("{link}").join(link.value.trim() || "[paste the owner link above]"); };
+  const fill = () => { mail.value = TEMPLATES[box.dataset.variant || "plain"].split("{first_name}").join(box.dataset.first).split("{link}").join(link.value.trim() || "[paste the owner link above]"); };
   link.addEventListener("input", fill); fill();
   box.querySelector(".copybtn").addEventListener("click", async () => {
     try { await navigator.clipboard.writeText(mail.value); done.textContent = "Copied"; }
@@ -276,7 +276,7 @@ async function sendReminder(context, env, id, form, nowMs) {
 // Send invite email: the request must be approved or invited. Success marks an approved request invited.
 async function sendInvite(context, env, id, form, nowMs) {
   const back = (code) => redirect(`/admin/invites?sent=${code}&r=${id}#r${id}`);
-  const row = await env.DB.prepare("SELECT id, status, first_name, email, slug FROM invite_requests WHERE id = ?").bind(id).first();
+  const row = await env.DB.prepare("SELECT id, status, first_name, email, slug, phone, computers FROM invite_requests WHERE id = ?").bind(id).first();
   if (!row) return refused(404);
   if (row.status !== "approved" && row.status !== "invited") return redirect(`/admin/invites#r${id}`);   // stale page
   if (sendingOff(env)) return back("off");
@@ -284,7 +284,7 @@ async function sendInvite(context, env, id, form, nowMs) {
   if (!linkMatchesSlug(link, row.slug)) return back("host");
   let res;
   try {
-    res = await sendTemplate(env, { template: "invite", to: row.email, fields: { first_name: row.first_name, link },
+    res = await sendTemplate(env, { template: "invite", to: row.email, fields: { first_name: row.first_name, link, phone: row.phone, computers: row.computers },
       requestId: id, nowMs, fetchImpl: context.mailFetch || fetch, say: context.say || console.log });
   } catch (e) {
     if (e instanceof MailError && e.code === "bad_field:link") return back("link");
