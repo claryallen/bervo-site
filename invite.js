@@ -61,7 +61,7 @@
   function set(el, msg) { errFor(el).textContent = msg || ""; return !msg; }
   function validate() {
     var ok = true;
-    ["first_name", "last_name", "company", "role"].forEach(function (id) {
+    ["first_name", "last_name"].forEach(function (id) {
       var el = document.getElementById(id);
       ok = set(el, el.value.trim() ? "" : MSG.required) && ok;
     });

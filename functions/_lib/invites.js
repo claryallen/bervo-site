@@ -8,7 +8,7 @@ export const RATE_KEEP_DAYS = 7;               // salted hashes are dropped afte
 export const NOT_NOW_KEEP_DAYS = 90;           // "not now", expired and unanswered (new/approved, never invited) requests are deleted 90 days after their last status change (Allen 11-11)
 // Allen 11-10 ("Yes, 90 days"): once the customer is live (claimed) a request keeps only id, cohort, status and
 // dates, plus the plan they chose (like cohort). TRIM_SET nulls everything else; the schema's table CHECK refuses a claimed row that still holds any of it.
-export const TRIMMED_COLUMNS = ["first_name", "last_name", "email", "company", "role", "has_assistant",
+export const TRIMMED_COLUMNS = ["first_name", "last_name", "email", "has_assistant",
   "email_providers", "other_email", "computers", "phone", "heard_from", "heard_detail", "timezone", "about", "referral", "slug", "note"];
 export const OTHER_EMAIL_MAX = 40;             // "What other email account(s)?" (shown when Other is ticked; 0003 migration)
 export const TRIM_SET = TRIMMED_COLUMNS.map((c) => `${c} = NULL`).join(", ");
@@ -38,7 +38,7 @@ const FORMAT_CHARS = /\p{Cf}/gu;
 export const EMAIL_RE = /^[a-z0-9._%+\-]+@[a-z0-9\-]+(\.[a-z0-9\-]+)+$/;
 export const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,30}$/;   // provision_profile.py tenant slug
 
-const LIMITS = { first_name: 80, last_name: 80, email: 254, company: 120, role: 120 };
+const LIMITS = { first_name: 80, last_name: 80, email: 254 };   // company/role removed (Allen 11-11; 0006)
 
 export function escapeHtml(v) {
   return String(v ?? "")
@@ -183,10 +183,10 @@ export function cohortFor(referral) { return referral === "allen" ? "private" : 
 
 export async function insertInvite(db, v, nowIso) {
   return db.prepare(
-    "INSERT INTO invite_requests (created_at, first_name, last_name, email, company, role, has_assistant, " +
+    "INSERT INTO invite_requests (created_at, first_name, last_name, email, has_assistant, " +
     "email_providers, other_email, computers, phone, plan, heard_from, heard_detail, timezone, about, referral, cohort, privacy_agreed_at, status, status_changed_at) " +
-    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', ?)"
-  ).bind(nowIso, v.first_name, v.last_name, v.email, v.company, v.role, v.has_assistant, v.email_providers,
+    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', ?)"
+  ).bind(nowIso, v.first_name, v.last_name, v.email, v.has_assistant, v.email_providers,
     v.other_email ?? null, v.computers ?? null, v.phone, v.plan, v.heard_from ?? null, v.heard_detail ?? null, v.timezone, v.about, v.referral, cohortFor(v.referral), nowIso, nowIso).run();
 }
 
