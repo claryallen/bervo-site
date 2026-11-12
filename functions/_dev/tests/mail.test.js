@@ -157,7 +157,7 @@ test("M2 Allen's approved words (NEXT_USER_WORDS_V1 §A, 11-11), word for word; 
     "You'll need about 20 minutes, your phone, and the sign-in for the email account you want Bervo to read.\n\n" +
     "It works once and stays open for 14 days. Setup takes you through connecting your email, choosing how much history to load, " +
     "adding your AI API key and texting the Bervo line. Stopped partway? Sign in with your email and password and you'll pick up " +
-    "where you left off.\n\nAny questions, just reply to this email.\n\nAllen");
+    "where you left off.\n\nBervo is free until January 5, 2027.\n\nAny questions, just reply to this email.\n\nAllen");
   const r3 = mail.render("reminder_day3", { first_name: "Pat", link: LINK, expiry_date: "November 25" });
   assert.equal(r3.subject, "Your Bervo setup link");
   assert.equal(r3.text, `Hi Pat,\n\nJust a reminder that your Bervo setup is waiting. Here's a fresh link (the one in my earlier email no longer works):\n${LINK}\n\n` +
@@ -170,7 +170,7 @@ test("M2 Allen's approved words (NEXT_USER_WORDS_V1 §A, 11-11), word for word; 
   assert.equal(ld.subject, "Bervo is ready");
   assert.equal(ld.text, "Hi Pat,\n\nBervo has read your email back to October 12, and your dashboard is ready:\nhttps://zz-test.bervo.ai/\n\n" +
     "Start with Today. It shows your briefing, your schedule and anything waiting on you. Your first morning brief will be on your " +
-    "dashboard tomorrow morning.\n\nIf anything looks wrong, use Feedback at the top of the dashboard, or text Bervo.\n\nAllen");
+    "dashboard tomorrow morning.\n\nBervo is free until January 5, 2027.\n\nIf anything looks wrong, use Feedback at the top of the dashboard, or text Bervo.\n\nAllen");
   for (const t of Object.values(mail.TEMPLATES)) assert.ok(!(t.subject + t.body).includes("[GTM"));
   assert.throws(() => mail.render("loaded", { first_name: "Pat", start_date: "October 12", dashboard_link: "https://zz-test.bervo.ai/x" }), { code: "bad_field:dashboard_link" });
   assert.throws(() => mail.render("loaded", { first_name: "Pat", start_date: "Oct\n12", dashboard_link: "https://zz-test.bervo.ai/" }), { code: "bad_field:start_date" });
@@ -178,6 +178,26 @@ test("M2 Allen's approved words (NEXT_USER_WORDS_V1 §A, 11-11), word for word; 
   mail.TEMPLATES.loaded.subject = "[GTM] draft";
   try { assert.throws(() => mail.render("loaded", { first_name: "Pat", start_date: "October 12", dashboard_link: "https://zz-test.bervo.ai/" }), { code: "placeholder" }); }
   finally { mail.TEMPLATES.loaded.subject = saved; }
+});
+
+test("BL1 CR-BILLINGLINE.1: the billing line is its own paragraph, once, in invite and loaded only; no price-lock wording", () => {
+  const LINE = "Bervo is free until January 5, 2027.";
+  const count = (t) => t.split(LINE).length - 1;
+  const inv = mail.render("invite", { first_name: "Pat", link: LINK }).text;
+  const ld = mail.render("loaded", { first_name: "Pat", start_date: "October 12", dashboard_link: "https://zz-test.bervo.ai/" }).text;
+  assert.equal(count(inv), 1);
+  assert.equal(count(ld), 1);
+  for (const t of [inv, ld]) assert.ok(t.split("\n\n").includes(LINE), "its own paragraph");
+  assert.ok(inv.indexOf(LINE) > inv.indexOf("pick up where you left off.") && inv.indexOf(LINE) < inv.indexOf("Any questions"), "invite: after the setup paragraph, before 'Any questions'");
+  assert.ok(ld.indexOf(LINE) > ld.indexOf("Start with Today") && ld.indexOf(LINE) < ld.indexOf("If anything looks wrong"), "loaded: after the Today paragraph, before the feedback line");
+  for (const t of ["reminder_day3", "reminder_day10"]) {
+    assert.equal(count(mail.render(t, { first_name: "Pat", link: LINK, expiry_date: "November 25" }).text), 0, t + " has no billing line");
+  }
+  for (const [ph, co] of [["iphone", '["none"]'], ["iphone", '["windows"]'], ["android", '["none"]'], [undefined, undefined]]) {
+    assert.equal(count(mail.render("invite", { first_name: "Pat", link: LINK, phone: ph, computers: co }).text), 1, `invite ${ph}/${co}`);
+  }
+  assert.ok(!/price|today's|keep.*as long as/i.test(inv + ld), "no price-lock wording");
+  assert.equal(count(mail.inviteBody("iphone", '["none"]')), 1);
 });
 
 test("M3 send: Postmark gets the right message; D1 and the log hold no address, link, body or key", async () => {

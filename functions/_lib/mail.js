@@ -25,7 +25,9 @@ export const DEFAULT_FROM = "Bervo <hello@bervo.ai>";
 //   invite         = INVITE_FORM_COPY_V1.md §5 (approved 11-10) + §A1's added line, placed right after the link
 //                    paragraph ("Here's your personal setup link:" + the link);
 //   reminder_day3  = §A2 Day 3;  reminder_day10 = §A2 Day 10 (each carries a FRESH link; the earlier one is dead);
-//   loaded         = §A3 (the "{billing line, Allen 5.2}" placeholder is left out: still open with Allen).
+//   loaded         = §A3 (the "{billing line, Allen 5.2}" placeholder is now filled: CR-BILLINGLINE.1, Allen 11-12).
+// CR-BILLINGLINE.1 (Allen 11-12): the line "Bervo is free until January 5, 2027." is its own paragraph in invite
+// (after the setup paragraph, before "Any questions") and loaded (after the "Start with Today" paragraph). Not in the reminders.
 // render() still refuses any text carrying "[GTM]", so a future placeholder can never reach a customer.
 export const TEMPLATES = {
   invite: {
@@ -44,6 +46,8 @@ export const TEMPLATES = {
       "It works once and stays open for 14 days. Setup takes you through connecting your email, choosing how much " +
         "history to load, adding your AI API key and texting the Bervo line. Stopped partway? Sign in with your email " +
         "and password and you'll pick up where you left off.",
+      "",
+      "Bervo is free until January 5, 2027.",
       "",
       "Any questions, just reply to this email.",
       "",
@@ -89,6 +93,8 @@ export const TEMPLATES = {
       "",
       "Start with Today. It shows your briefing, your schedule and anything waiting on you. Your first morning brief " +
         "will be on your dashboard tomorrow morning.",
+      "",
+      "Bervo is free until January 5, 2027.",
       "",
       "If anything looks wrong, use Feedback at the top of the dashboard, or text Bervo.",
       "",
