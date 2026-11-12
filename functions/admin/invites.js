@@ -122,8 +122,6 @@ ${r.approved_at ? `<dt>Approved</dt><dd>${fmt(r.approved_at)}</dd>` : ""}${r.inv
 <dl>
 <dt>Received</dt><dd>${fmt(r.created_at)}</dd>
 <dt>Email</dt><dd>${e(r.email)}</dd>
-<dt>Company</dt><dd>${e(r.company)}</dd>
-<dt>Role</dt><dd>${e(r.role)}</dd>
 <dt>Has an assistant</dt><dd>${e(r.has_assistant)}</dd>
 <dt>Email provider(s)</dt><dd>${e(providerList(r.email_providers))}</dd>
 ${r.other_email ? `<dt>Other email account(s)</dt><dd>${e(r.other_email)}</dd>` : ""}

@@ -17,7 +17,8 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../.
 const SCHEMA = readFileSync(path.join(ROOT, "functions/_dev/migrations/0001_invite_requests.sql"), "utf8") + "\n" +
   readFileSync(path.join(ROOT, "functions/_dev/migrations/0003_other_email.sql"), "utf8") + "\n" +
   readFileSync(path.join(ROOT, "functions/_dev/migrations/0004_computers.sql"), "utf8") + "\n" +
-  readFileSync(path.join(ROOT, "functions/_dev/migrations/0005_heard_from.sql"), "utf8");
+  readFileSync(path.join(ROOT, "functions/_dev/migrations/0005_heard_from.sql"), "utf8") + "\n" +
+  readFileSync(path.join(ROOT, "functions/_dev/migrations/0006_drop_company_role.sql"), "utf8");
 const NOW = Date.parse("2026-11-12T15:00:00Z");
 const ORIGIN = "https://bervo.ai";
 const TEAM = "bervo.cloudflareaccess.com";
@@ -70,7 +71,7 @@ const ENV = (db) => ({ DB: db, TURNSTILE_SECRET: "test-secret", RATE_LIMIT_SALT:
 
 function validFields(over = {}) {
   return {
-    first_name: "Pat", last_name: "Sample", email: "Pat@Example.com", company: "Sample Co", role: "Owner",
+    first_name: "Pat", last_name: "Sample", email: "Pat@Example.com",
     has_assistant: "yes", email_provider: "google", computer: "mac", phone: "iphone", plan: "private", heard_from: "search", about: "I run a small firm.",
     privacy: "yes", tz: "America/Chicago", referral: "", website: "", t: String(NOW - 10000),
     "cf-turnstile-response": "good-token", ...over,
@@ -172,7 +173,7 @@ test("about box: required, exactly 1,000 characters accepted, 1,001 refused", as
 test("validation: bad email, unknown choice, missing privacy box -> back to the form, nothing stored", async () => {
   const db = makeD1();
   const bad = [{ email: "not-an-email" }, { email: "a@b" }, { email_provider: "yahoo" }, { phone: "nokia" },
-    { has_assistant: "maybe" }, { privacy: "" }, { first_name: "" }, { company: "x".repeat(121) }];
+    { has_assistant: "maybe" }, { privacy: "" }, { first_name: "" }, { last_name: "x".repeat(81) }];
   let i = 0;
   for (const b of bad) {
     const r = await post(db, validFields(b), { ip: "198.51.100." + (20 + i++) });
@@ -331,12 +332,12 @@ test("admin with Allen's token: lists requests, full about text, personal-invite
 test("escaping: <script> in every field is stored as text and shown escaped on the admin page", async () => {
   const db = makeD1();
   const evil = "<script>alert(1)</script>";
-  const r = await post(db, validFields({ first_name: evil, last_name: evil, company: evil, role: evil, about: evil + "\n\"quoted\" & 'single'", tz: evil, referral: evil }), { ip: "198.51.100.70" });
+  const r = await post(db, validFields({ first_name: evil, last_name: evil, about: evil + "\n\"quoted\" & 'single'", tz: evil, referral: evil }), { ip: "198.51.100.70" });
   assert.equal(r.location, "/invite-thanks");
   // email cannot carry markup (it would fail validation); prove that too
   assert.equal((await post(db, validFields({ email: `${evil}@example.com` }), { ip: "198.51.100.71" })).location, "/invite?e=invalid");
   assert.equal(rows(db).length, 1);
-  assert.equal(rows(db)[0].company, evil);
+  assert.equal(rows(db)[0].last_name, evil);
   await adminPost(db, { id: "1", action: "note", note: evil }, { jwt: await makeJwt({}) });
   const page = await adminGet(db, { jwt: await makeJwt({}) });
   assert.equal(page.status, 200);
@@ -359,7 +360,7 @@ test("Approve changes only that D1 row; Not now, Mark invited and transitions; n
   assert.equal(after[0].note, "call first");
   assert.equal(after[0].approved_at, new Date(NOW).toISOString());
   assert.deepEqual(after[1], before[1], "the other row is untouched");
-  for (const k of ["first_name", "email", "about", "company", "created_at"]) assert.equal(after[0][k], before[0][k]);
+  for (const k of ["first_name", "email", "about", "last_name", "created_at"]) assert.equal(after[0][k], before[0][k]);
   assert.ok(calls.every((u) => u === `https://${TEAM}/cdn-cgi/access/certs`), "only the Access key fetch: " + calls);
   // invited only from approved
   await adminPost(db, { id: "2", action: "invited" }, { jwt });
@@ -417,7 +418,7 @@ test("approved copy on the page (INVITE_FORM_COPY_V1 §1-4): labels, radios, hel
   }
   for (const t of ["Privacy First. Business First.", "<h1>Request an invite</h1>",
     "Bervo is built for business owners and executives. Tell us a little about yourself and we'll be in touch, usually within two business days.",
-    ">Preferred email<", "The address you'd like to sign in with.", ">Your role<", "For example: owner, CEO, managing partner.",
+    ">Preferred email<", "The address you'd like to sign in with.",
     "<legend>Do you have an assistant?</legend>", "Your assistant can have their own sign-in to Bervo.",
     "<legend>Email provider(s)</legend>", "Google (Gmail or Google Workspace)", "Microsoft 365 or Exchange",
     "<legend>Which phone do you use?</legend>", "Tell us about you and your business",
@@ -497,14 +498,12 @@ test("bidi, zero-width and other format characters are stripped from every text 
   const db = makeD1();
   const cf = ["\u202A", "\u202B", "\u202C", "\u202D", "\u202E", "\u2066", "\u2067", "\u2068", "\u2069",
     "\u200B", "\u200C", "\u200D", "\u200E", "\u200F", "\uFEFF", "\u00AD", "\u2060", "\u061C"].join("");
-  const r = await post(db, validFields({ first_name: "Pa" + cf + "t", last_name: cf + "Sample", company: "Co" + cf,
-    role: "Ow\u202Ener", about: "Hi\u2066 there\u2069" + cf, email: "pat\u200B@example.com", tz: "Europe/\u200BLondon" }), { ip: "198.51.100.130" });
+  const r = await post(db, validFields({ first_name: "Pa" + cf + "t", last_name: cf + "Sample",
+    about: "Hi\u2066 there\u2069" + cf, email: "pat\u200B@example.com", tz: "Europe/\u200BLondon" }), { ip: "198.51.100.130" });
   assert.equal(r.location, "/invite-thanks");
   const row = rows(db)[0];
   assert.equal(row.first_name, "Pat");
   assert.equal(row.last_name, "Sample");
-  assert.equal(row.company, "Co");
-  assert.equal(row.role, "Owner");
   assert.equal(row.about, "Hi there");
   assert.equal(row.email, "pat@example.com");
   assert.equal(row.timezone, "Europe/London");
@@ -549,8 +548,8 @@ test("Mark claimed trims the row to id, cohort, status and dates in the same upd
   await adminPost(db, { id: "1", action: "claimed" }, { jwt });
   const r = rows(db)[0];
   assert.equal(r.status, "claimed");
-  for (const c of ["first_name", "last_name", "email", "company", "role", "has_assistant", "email_providers", "phone",
-    "timezone", "about", "referral", "slug", "note"]) assert.equal(r[c], null, c);
+  for (const c of ["first_name", "last_name", "email", "has_assistant", "email_providers", "other_email", "computers", "phone",
+    "heard_from", "heard_detail", "timezone", "about", "referral", "slug", "note"]) assert.equal(r[c], null, c);
   assert.equal(r.cohort, "private");
   for (const c of ["id", "created_at", "privacy_agreed_at", "approved_at", "invited_at", "plan"]) assert.equal(r[c], before[c], c);
   assert.equal(r.plan, "private", "the plan is kept with cohort");
@@ -564,7 +563,7 @@ test("Mark claimed trims the row to id, cohort, status and dates in the same upd
 
 test("schema: a claimed row cannot hold request data, and an unclaimed row must", () => {
   const db = makeD1();
-  const ins = "INSERT INTO invite_requests (created_at, first_name, last_name, email, company, role, has_assistant, email_providers, phone, plan, about, cohort, privacy_agreed_at, status) VALUES ('t','A','B','a@b.co','C','R','yes','[\"google\"]','iphone','private','x','public','t', ?)";
+  const ins = "INSERT INTO invite_requests (created_at, first_name, last_name, email, has_assistant, email_providers, phone, plan, about, cohort, privacy_agreed_at, status) VALUES ('t','A','B','a@b.co','yes','[\"google\"]','iphone','private','x','public','t', ?)";
   assert.throws(() => db.raw.prepare(ins).run("claimed"), /CHECK/);
   db.raw.prepare(ins).run("invited");
   assert.throws(() => db.raw.prepare("UPDATE invite_requests SET status='claimed' WHERE id=1").run(), /CHECK/);
@@ -608,7 +607,7 @@ function pageSandbox({ config, search = "", onPlan } = {}) {
     listeners: {}, addEventListener(t, f) { this.listeners[t] = f; }, closest() { return errHolder(id); }, ...extra });
   const errs = {};
   const errHolder = (id) => ({ querySelector: () => (errs[id] ||= { textContent: "" }) });
-  for (const id of ["t", "tz", "referral", "first_name", "last_name", "email", "company", "role", "about", "about-count",
+  for (const id of ["t", "tz", "referral", "first_name", "last_name", "email", "about", "about-count",
     "privacy", "privacy-err", "submit", "fs-has_assistant", "fs-email_provider", "fs-phone", "fs-plan", "ep-other",
     "other-wrap", "other_email", "fs-computer", "cp-windows", "cp-mac", "cp-none", "heard_from", "heard-wrap",
     "heard_detail", "heard-detail-label"]) mk(id);
@@ -638,7 +637,7 @@ function pageSandbox({ config, search = "", onPlan } = {}) {
   vm.createContext(ctx);
   vm.runInContext(readFileSync(path.join(ROOT, "invite.js"), "utf8"), ctx);
   return { els, errs, form, radios, scripts, window, fill() {
-    for (const id of ["first_name", "last_name", "company", "role", "about"]) els[id].value = "x";
+    for (const id of ["first_name", "last_name", "about"]) els[id].value = "x";
     els.email.value = "a@b.co"; els.privacy.checked = true; els.heard_from.value = "search";
     Object.assign(radios, { has_assistant: 1, email_provider: 1, computer: 1, phone: 1, plan: 1 });
   } };
@@ -761,7 +760,7 @@ test("email provider(s): any of the three, at least one, stored as a fixed-order
 test("every field required on the server: each one missing alone is refused, nothing stored", async () => {
   const db = makeD1();
   let i = 0;
-  for (const k of ["first_name", "last_name", "email", "company", "role", "has_assistant", "email_provider", "phone", "plan", "about", "privacy"]) {
+  for (const k of ["first_name", "last_name", "email", "has_assistant", "email_provider", "computer", "phone", "plan", "heard_from", "about", "privacy"]) {
     const f = validFields(); delete f[k];
     assert.equal((await post(db, f, { ip: "198.51.100." + (180 + i++) })).location, "/invite?e=invalid", k);
   }
@@ -773,8 +772,8 @@ test("every field required on the page: an empty press puts the approved line un
   await loadTurnstile(p);
   press(p);
   const want = { first_name: "Please fill this in.", last_name: "Please fill this in.", email: "Please fill this in.",
-    company: "Please fill this in.", role: "Please fill this in.", "fs-has_assistant": "Please choose one.",
-    "fs-email_provider": "Please choose at least one.", "fs-phone": "Please choose one.", "fs-plan": "Please choose one.",
+    "fs-has_assistant": "Please choose one.",
+    "fs-email_provider": "Please choose at least one.", "fs-computer": "Please choose at least one.", heard_from: "Please choose one.", "fs-phone": "Please choose one.", "fs-plan": "Please choose one.",
     about: "Please fill this in." };
   for (const [k, msg] of Object.entries(want)) assert.equal(p.errs[k]?.textContent, msg, k);
   assert.equal(p.els["privacy-err"].textContent, "Please agree to the Privacy Policy to send your request.");
@@ -896,4 +895,15 @@ test("page: the approved options in order after the plan; the detail box opens o
   assert.equal(press(p), true, "Referred with no name blocks the send");
   p.els.heard_detail.value = "Pat";
   assert.equal(press(p), false, "with a name it is sent");
+});
+
+test("company and role are not asked, not stored and not shown (Allen 11-11)", async () => {
+  const html = readFileSync(path.join(ROOT, "invite.html"), "utf8");
+  assert.ok(!/name="company"|name="role"|>Company<|>Your role</.test(html));
+  const db = makeD1();
+  await post(db, validFields({ company: "Sample Co", role: "Owner" }), { ip: "198.51.100.240" });
+  assert.equal(rows(db).length, 1, "extra fields are ignored, the request is stored");
+  assert.ok(!("company" in rows(db)[0]) && !("role" in rows(db)[0]), "no such columns");
+  const page = (await adminGet(db, { jwt: await makeJwt({}) })).body;
+  assert.ok(!page.includes("<dt>Company</dt>") && !page.includes("<dt>Role</dt>"));
 });

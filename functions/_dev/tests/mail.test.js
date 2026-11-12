@@ -33,6 +33,7 @@ function makeD1({ mailTable = true } = {}) {
   sql.exec(readFileSync(path.join(ROOT, "functions/_dev/migrations/0003_other_email.sql"), "utf8"));
   sql.exec(readFileSync(path.join(ROOT, "functions/_dev/migrations/0004_computers.sql"), "utf8"));
   sql.exec(readFileSync(path.join(ROOT, "functions/_dev/migrations/0005_heard_from.sql"), "utf8"));
+  sql.exec(readFileSync(path.join(ROOT, "functions/_dev/migrations/0006_drop_company_role.sql"), "utf8"));
   if (mailTable) sql.exec(SCHEMA2);
   const norm = (a) => a.map((v) => (v === undefined ? null : v));
   return {
@@ -50,9 +51,9 @@ function makeD1({ mailTable = true } = {}) {
   };
 }
 function seed(db, { status = "approved", email = ADDRESS, first = "Pat" } = {}) {
-  db.raw.prepare("INSERT INTO invite_requests (created_at, first_name, last_name, email, company, role, has_assistant, " +
+  db.raw.prepare("INSERT INTO invite_requests (created_at, first_name, last_name, email, has_assistant, " +
     "email_providers, phone, plan, timezone, about, cohort, privacy_agreed_at, status, status_changed_at, approved_at) " +
-    "VALUES (?, ?, 'Sample', ?, 'Sample Co', 'Owner', 'yes', '[\"google\"]', 'iphone', 'private', 'America/Chicago', " +
+    "VALUES (?, ?, 'Sample', ?, 'yes', '[\"google\"]', 'iphone', 'private', 'America/Chicago', " +
     "'I run a small firm.', 'public', ?, ?, ?, ?)").run("2026-11-11T10:00:00Z", first, email, "2026-11-11T10:00:00Z", status,
     "2026-11-11T11:00:00Z", status === "new" ? null : "2026-11-11T11:00:00Z");
   return Number(db.raw.prepare("SELECT max(id) AS m FROM invite_requests").get().m);
