@@ -32,6 +32,7 @@ function makeD1({ mailTable = true } = {}) {
   sql.exec(SCHEMA1);
   sql.exec(readFileSync(path.join(ROOT, "functions/_dev/migrations/0003_other_email.sql"), "utf8"));
   sql.exec(readFileSync(path.join(ROOT, "functions/_dev/migrations/0004_computers.sql"), "utf8"));
+  sql.exec(readFileSync(path.join(ROOT, "functions/_dev/migrations/0005_heard_from.sql"), "utf8"));
   if (mailTable) sql.exec(SCHEMA2);
   const norm = (a) => a.map((v) => (v === undefined ? null : v));
   return {

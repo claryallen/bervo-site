@@ -58,6 +58,9 @@ function fmt(iso) { return iso ? escapeHtml(String(iso).replace("T", " ").slice(
 
 const PLAN_NAMES = { standard: "Standard $49/mo", private: "Private $99/mo" };
 const PROVIDER_NAMES = { google: "Google", microsoft: "Microsoft 365 or Exchange", other: "Other" };
+const HEARD_NAMES = { referral: "Referred by someone", social: "Social Media", search: "Web Search (Google, etc.)",
+  ai: "AI told me (ChatGPT, Claude, Gemini, etc.)", media: "An article, podcast or newsletter", ad: "An online ad",
+  event: "An event or talk", other: "Other" };
 const COMPUTER_NAMES = { windows: "Windows PC", mac: "Mac", none: "Neither (iPad and/or phone only)" };
 function computerList(json) {
   let list;
@@ -125,6 +128,7 @@ ${r.approved_at ? `<dt>Approved</dt><dd>${fmt(r.approved_at)}</dd>` : ""}${r.inv
 <dt>Email provider(s)</dt><dd>${e(providerList(r.email_providers))}</dd>
 ${r.other_email ? `<dt>Other email account(s)</dt><dd>${e(r.other_email)}</dd>` : ""}
 ${r.computers ? `<dt>Computer(s)</dt><dd>${e(computerList(r.computers))}</dd>` : ""}
+${r.heard_from ? `<dt>How they heard</dt><dd>${e(HEARD_NAMES[r.heard_from] || r.heard_from)}${r.heard_detail ? `: ${e(r.heard_detail)}` : ""}</dd>` : ""}
 <dt>Phone</dt><dd>${e(r.phone)}</dd>
 <dt>Plan</dt><dd>${e(PLAN_NAMES[r.plan] || r.plan)}</dd>
 <dt>Time zone</dt><dd>${e(r.timezone || "(not sent)")}</dd>

@@ -9,7 +9,7 @@ export const NOT_NOW_KEEP_DAYS = 90;           // "not now", expired and unanswe
 // Allen 11-10 ("Yes, 90 days"): once the customer is live (claimed) a request keeps only id, cohort, status and
 // dates, plus the plan they chose (like cohort). TRIM_SET nulls everything else; the schema's table CHECK refuses a claimed row that still holds any of it.
 export const TRIMMED_COLUMNS = ["first_name", "last_name", "email", "company", "role", "has_assistant",
-  "email_providers", "other_email", "computers", "phone", "timezone", "about", "referral", "slug", "note"];
+  "email_providers", "other_email", "computers", "phone", "heard_from", "heard_detail", "timezone", "about", "referral", "slug", "note"];
 export const OTHER_EMAIL_MAX = 40;             // "What other email account(s)?" (shown when Other is ticked; 0003 migration)
 export const TRIM_SET = TRIMMED_COLUMNS.map((c) => `${c} = NULL`).join(", ");
 export const MIN_FILL_MS = 2000;               // a form filled faster than this is a bot (spec §A)
@@ -17,6 +17,10 @@ export const REFERRALS = ["allen"];            // bervo.ai/invite?from=allen -> 
 export const PROVIDERS = ["google", "microsoft", "other"];   // onboarding.py's account providers; stored in this order
 export const PLANS = ["standard", "private"];               // "Which plan would you like?" (Standard listed first)
 export const COMPUTERS = ["windows", "mac", "none"];         // "Which type of computer(s)?" (Allen 11-11; 0004); "none" = iPad and/or phone only
+// "How did you hear about Bervo?" (options approved by Allen 11-11; 0005). Keys are fixed; labels live in the page/admin.
+export const HEARD = ["referral", "social", "search", "ai", "media", "ad", "event", "other"];
+export const HEARD_DETAIL_FOR = ["referral", "other"];      // these open a required box ("Who referred you?" / "Please tell us where")
+export const HEARD_DETAIL_MAX = 200;
 export const PHONES = ["iphone", "android"];                 // onboarding.PHONES
 export const YES_NO = ["yes", "no"];
 export const STATUSES = ["new", "approved", "not_now", "invited", "claimed", "expired"];
@@ -93,6 +97,14 @@ export function validateInvite(form) {
   v.computers = JSON.stringify(COMPUTERS.filter((x) => comps.has(x)));
   pick("phone", PHONES);
   pick("plan", PLANS);
+  pick("heard_from", HEARD);
+  if (HEARD_DETAIL_FOR.includes(v.heard_from)) {
+    const d = clean(get("heard_detail"));
+    if (!d || d.length > HEARD_DETAIL_MAX) errors.push("heard_detail");
+    v.heard_detail = d;
+  } else {
+    v.heard_detail = null;
+  }
   const about = clean(get("about"), true);
   if (!about || about.length > ABOUT_MAX) errors.push("about");
   v.about = about;
@@ -172,10 +184,10 @@ export function cohortFor(referral) { return referral === "allen" ? "private" : 
 export async function insertInvite(db, v, nowIso) {
   return db.prepare(
     "INSERT INTO invite_requests (created_at, first_name, last_name, email, company, role, has_assistant, " +
-    "email_providers, other_email, computers, phone, plan, timezone, about, referral, cohort, privacy_agreed_at, status, status_changed_at) " +
-    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', ?)"
+    "email_providers, other_email, computers, phone, plan, heard_from, heard_detail, timezone, about, referral, cohort, privacy_agreed_at, status, status_changed_at) " +
+    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', ?)"
   ).bind(nowIso, v.first_name, v.last_name, v.email, v.company, v.role, v.has_assistant, v.email_providers,
-    v.other_email ?? null, v.computers ?? null, v.phone, v.plan, v.timezone, v.about, v.referral, cohortFor(v.referral), nowIso, nowIso).run();
+    v.other_email ?? null, v.computers ?? null, v.phone, v.plan, v.heard_from ?? null, v.heard_detail ?? null, v.timezone, v.about, v.referral, cohortFor(v.referral), nowIso, nowIso).run();
 }
 
 // ---------- Cloudflare Access JWT (defence in depth behind the Access application) ----------
