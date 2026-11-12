@@ -32,6 +32,15 @@
   var upd = function () { count.textContent = about.value.length.toLocaleString("en-US") + " of 1,000"; };
   about.addEventListener("input", upd); upd();
 
+  // Other email provider: "What other email account(s)?" shows only while Other is ticked (Allen 11-11).
+  var epOther = document.getElementById("ep-other"), otherWrap = document.getElementById("other-wrap"),
+    otherEmail = document.getElementById("other_email");
+  var showOther = function () {
+    otherWrap.hidden = !epOther.checked;
+    otherEmail.disabled = !epOther.checked;          // a hidden answer is never sent
+  };
+  epOther.addEventListener("change", showOther); showOther();
+
   function errFor(el) { return el.closest("label.f, fieldset").querySelector(".err"); }
   function set(el, msg) { errFor(el).textContent = msg || ""; return !msg; }
   function validate() {
@@ -46,6 +55,7 @@
       var picked = form.querySelector("input[name=" + n + "]:checked");
       ok = set(document.getElementById("fs-" + n), picked ? "" : (n === "email_provider" ? MSG.choiceAny : MSG.choice)) && ok;
     });
+    if (epOther.checked) ok = set(otherEmail, otherEmail.value.trim() ? "" : MSG.required) && ok;
     ok = set(about, !about.value.trim() ? MSG.required : (about.value.length > 1000 ? MSG.tooLong : "")) && ok;
     var pp = document.getElementById("privacy");
     document.getElementById("privacy-err").textContent = pp.checked ? "" : MSG.privacy;

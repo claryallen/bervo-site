@@ -116,6 +116,7 @@ ${r.approved_at ? `<dt>Approved</dt><dd>${fmt(r.approved_at)}</dd>` : ""}${r.inv
 <dt>Role</dt><dd>${e(r.role)}</dd>
 <dt>Has an assistant</dt><dd>${e(r.has_assistant)}</dd>
 <dt>Email provider(s)</dt><dd>${e(providerList(r.email_providers))}</dd>
+${r.other_email ? `<dt>Other email account(s)</dt><dd>${e(r.other_email)}</dd>` : ""}
 <dt>Phone</dt><dd>${e(r.phone)}</dd>
 <dt>Plan</dt><dd>${e(PLAN_NAMES[r.plan] || r.plan)}</dd>
 <dt>Time zone</dt><dd>${e(r.timezone || "(not sent)")}</dd>

@@ -9,7 +9,8 @@ export const NOT_NOW_KEEP_DAYS = 90;           // "not now", expired and unanswe
 // Allen 11-10 ("Yes, 90 days"): once the customer is live (claimed) a request keeps only id, cohort, status and
 // dates, plus the plan they chose (like cohort). TRIM_SET nulls everything else; the schema's table CHECK refuses a claimed row that still holds any of it.
 export const TRIMMED_COLUMNS = ["first_name", "last_name", "email", "company", "role", "has_assistant",
-  "email_providers", "phone", "timezone", "about", "referral", "slug", "note"];
+  "email_providers", "other_email", "phone", "timezone", "about", "referral", "slug", "note"];
+export const OTHER_EMAIL_MAX = 40;             // "What other email account(s)?" (shown when Other is ticked; 0003 migration)
 export const TRIM_SET = TRIMMED_COLUMNS.map((c) => `${c} = NULL`).join(", ");
 export const MIN_FILL_MS = 2000;               // a form filled faster than this is a bot (spec §A)
 export const REFERRALS = ["allen"];            // bervo.ai/invite?from=allen -> "personal invite" (display only)
@@ -77,6 +78,14 @@ export function validateInvite(form) {
   const chosen = new Set(getAll("email_provider").map((x) => clean(x).toLowerCase()));
   if (!chosen.size || [...chosen].some((x) => !PROVIDERS.includes(x))) errors.push("email_provider");
   v.email_providers = JSON.stringify(PROVIDERS.filter((x) => chosen.has(x)));
+  // Allen 11-11: ticking Other opens "What other email account(s)?" (required while shown; ignored otherwise).
+  if (chosen.has("other")) {
+    const o = clean(get("other_email"));
+    if (!o || o.length > OTHER_EMAIL_MAX) errors.push("other_email");
+    v.other_email = o;
+  } else {
+    v.other_email = null;
+  }
   pick("phone", PHONES);
   pick("plan", PLANS);
   const about = clean(get("about"), true);
@@ -158,10 +167,10 @@ export function cohortFor(referral) { return referral === "allen" ? "private" : 
 export async function insertInvite(db, v, nowIso) {
   return db.prepare(
     "INSERT INTO invite_requests (created_at, first_name, last_name, email, company, role, has_assistant, " +
-    "email_providers, phone, plan, timezone, about, referral, cohort, privacy_agreed_at, status, status_changed_at) " +
-    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', ?)"
+    "email_providers, other_email, phone, plan, timezone, about, referral, cohort, privacy_agreed_at, status, status_changed_at) " +
+    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', ?)"
   ).bind(nowIso, v.first_name, v.last_name, v.email, v.company, v.role, v.has_assistant, v.email_providers,
-    v.phone, v.plan, v.timezone, v.about, v.referral, cohortFor(v.referral), nowIso, nowIso).run();
+    v.other_email ?? null, v.phone, v.plan, v.timezone, v.about, v.referral, cohortFor(v.referral), nowIso, nowIso).run();
 }
 
 // ---------- Cloudflare Access JWT (defence in depth behind the Access application) ----------

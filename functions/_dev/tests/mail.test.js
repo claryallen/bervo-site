@@ -30,6 +30,7 @@ const ADDRESS = "pat@example.com";
 function makeD1({ mailTable = true } = {}) {
   const sql = new DatabaseSync(":memory:");
   sql.exec(SCHEMA1);
+  sql.exec(readFileSync(path.join(ROOT, "functions/_dev/migrations/0003_other_email.sql"), "utf8"));
   if (mailTable) sql.exec(SCHEMA2);
   const norm = (a) => a.map((v) => (v === undefined ? null : v));
   return {

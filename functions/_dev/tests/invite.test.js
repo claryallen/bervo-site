@@ -11,10 +11,11 @@ import path from "node:path";
 import * as invite from "../../api/invite.js";
 import * as config from "../../api/invite-config.js";
 import * as admin from "../../admin/invites.js";
-import { _resetAccessKeyCache, ABOUT_MAX, escapeHtml, stripFormatChars, validateInvite } from "../../_lib/invites.js";
+import { _resetAccessKeyCache, ABOUT_MAX, escapeHtml, stripFormatChars, TRIMMED_COLUMNS, validateInvite } from "../../_lib/invites.js";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
-const SCHEMA = readFileSync(path.join(ROOT, "functions/_dev/migrations/0001_invite_requests.sql"), "utf8");
+const SCHEMA = readFileSync(path.join(ROOT, "functions/_dev/migrations/0001_invite_requests.sql"), "utf8") + "\n" +
+  readFileSync(path.join(ROOT, "functions/_dev/migrations/0003_other_email.sql"), "utf8");
 const NOW = Date.parse("2026-11-12T15:00:00Z");
 const ORIGIN = "https://bervo.ai";
 const TEAM = "bervo.cloudflareaccess.com";
@@ -606,7 +607,8 @@ function pageSandbox({ config, search = "", onPlan } = {}) {
   const errs = {};
   const errHolder = (id) => ({ querySelector: () => (errs[id] ||= { textContent: "" }) });
   for (const id of ["t", "tz", "referral", "first_name", "last_name", "email", "company", "role", "about", "about-count",
-    "privacy", "privacy-err", "submit", "fs-has_assistant", "fs-email_provider", "fs-phone", "fs-plan"]) mk(id);
+    "privacy", "privacy-err", "submit", "fs-has_assistant", "fs-email_provider", "fs-phone", "fs-plan", "ep-other",
+    "other-wrap", "other_email"]) mk(id);
   mk("send-err", { hidden: true });            // the page ships it with the hidden attribute
   let token = null;
   const radios = {};
@@ -723,8 +725,8 @@ test("plan: required, allowlisted, stored and shown; Standard listed first", asy
   const html = readFileSync(path.join(ROOT, "invite.html"), "utf8");
   assert.ok(html.indexOf('value="standard"') < html.indexOf('value="private"'), "Standard first");
   assert.ok(html.indexOf('name="phone" value="android"') < html.indexOf("<legend>Which plan would you like?</legend>"), "after the phone question");
-  for (const t of ['<label class="plan"><input type="radio" name="plan" value="standard" required><span><b>Standard $49/mo</b> <span class="help">Private server space. Add texts, voice, assistants anytime. Upgrade to Private anytime.</span></span></label>',
-    '<label class="plan"><input type="radio" name="plan" value="private"><span><b>Private $99/mo</b> <span class="help">Private server. Includes texts, voice, and your first assistant. Downgrade to Standard anytime.</span></span></label>'])
+  for (const t of ['<label class="plan"><input type="radio" name="plan" value="standard" required><span><b>Standard $49/mo</b> <span class="help">Private server space. Add texts, voice, assistants anytime. Upgrade to Private anytime. AI key costs additional. Bervo is free until January 5, 2027. Cancel anytime.</span></span></label>',
+    '<label class="plan"><input type="radio" name="plan" value="private"><span><b>Private $99/mo</b> <span class="help">Private server. Includes texts, voice, and your first assistant. Downgrade to Standard anytime. AI key costs additional. Bervo is free until January 5, 2027. Cancel anytime.</span></span></label>'])
     assert.ok(html.includes(t), "radio left of the bold name and grey line: " + t.slice(0, 60));
 });
 
@@ -739,9 +741,9 @@ test("?plan= pre-selects only standard or private", () => {
 
 test("email provider(s): any of the three, at least one, stored as a fixed-order JSON list", async () => {
   const db = makeD1();
-  await post(db, validFields({ email_provider: ["other", "google"] }), { ip: "198.51.100.170" });
+  await post(db, validFields({ email_provider: ["other", "google"], other_email: "Yahoo" }), { ip: "198.51.100.170" });
   await post(db, validFields({ email_provider: ["microsoft", "microsoft"] }), { ip: "198.51.100.171" });
-  await post(db, validFields({ email_provider: ["google", "microsoft", "other"] }), { ip: "198.51.100.172" });
+  await post(db, validFields({ email_provider: ["google", "microsoft", "other"], other_email: "AOL" }), { ip: "198.51.100.172" });
   assert.deepEqual(rows(db).map((r) => r.email_providers), ['["google","other"]', '["microsoft"]', '["google","microsoft","other"]']);
   const none = validFields(); delete none.email_provider;
   assert.equal((await post(db, none, { ip: "198.51.100.173" })).location, "/invite?e=invalid");
@@ -775,4 +777,44 @@ test("every field required on the page: an empty press puts the approved line un
   assert.equal(p.els["privacy-err"].textContent, "Please agree to the Privacy Policy to send your request.");
   const html = readFileSync(path.join(ROOT, "invite.html"), "utf8");
   assert.ok(!/\*|required-mark|aria-required/.test(html.replace(/<style>[\s\S]*?<\/style>/, "")), "no asterisks");
+});
+
+// ---------- "What other email account(s)?" (Allen 11-11) ----------
+test("Other ticked: the other-account answer is required, stored, shown to the admin and trimmed on claimed", async () => {
+  const db = makeD1();
+  await post(db, validFields({ email_provider: ["google", "other"], other_email: "" }), { ip: "198.51.100.200" });
+  assert.equal(rows(db).length, 0, "Other without an answer is refused");
+  await post(db, validFields({ email_provider: ["google", "other"], other_email: "x".repeat(41) }), { ip: "198.51.100.201" });
+  assert.equal(rows(db).length, 0, "41 characters refused");
+  await post(db, validFields({ email_provider: ["google", "other"], other_email: "  Yahoo, AOL\u202e " }), { ip: "198.51.100.202" });
+  assert.equal(rows(db).length, 1);
+  assert.equal(rows(db)[0].other_email, "Yahoo, AOL", "trimmed, format characters removed");
+  assert.equal(rows(db)[0].email_providers, '["google","other"]');
+  const page = (await adminGet(db, { jwt: await makeJwt({}) })).body;
+  assert.match(page, /Other email account\(s\)<\/dt><dd>Yahoo, AOL<\/dd>/);
+  assert.ok(TRIMMED_COLUMNS.includes("other_email"));
+});
+
+test("Other not ticked: any other-account text is ignored (never stored)", async () => {
+  const db = makeD1();
+  await post(db, validFields({ email_provider: "google", other_email: "sneaky" }), { ip: "198.51.100.203" });
+  assert.equal(rows(db).length, 1);
+  assert.equal(rows(db)[0].other_email, null);
+});
+
+test("page: the other-account box shows only while Other is ticked, and is required then", async () => {
+  const p = pageSandbox({ config: true });
+  assert.equal(p.els["other-wrap"].hidden, true, "hidden at load");
+  assert.equal(p.els.other_email.disabled, true, "not sent while hidden");
+  p.els["ep-other"].checked = true; p.els["ep-other"].listeners.change();
+  assert.equal(p.els["other-wrap"].hidden, false, "shown when Other is ticked");
+  assert.equal(p.els.other_email.disabled, false);
+  await loadTurnstile(p);
+  p.fill();
+  assert.equal(press(p), true, "empty other-account answer blocks the send");
+  p.els.other_email.value = "Yahoo";
+  assert.equal(press(p), false, "with an answer the form is sent");
+  const html = readFileSync(path.join(ROOT, "invite.html"), "utf8");
+  assert.match(html, /What other email account\(s\)\? \(e\.g\. Yahoo, AOL\)/);
+  assert.equal((html.match(/AI key costs additional\. Bervo is free until January 5, 2027\. Cancel anytime\./g) || []).length, 2);
 });
