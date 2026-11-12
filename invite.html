@@ -40,15 +40,17 @@ button:disabled{opacity:.6;cursor:default}footer{margin-top:2rem;font-size:.85re
 <div class="radios"><label><input type="radio" name="has_assistant" value="yes" required> Yes</label><label><input type="radio" name="has_assistant" value="no"> No</label></div>
 <span class="help">Your assistant can have their own sign-in to Bervo.</span><span class="err"></span></fieldset>
 <fieldset id="fs-email_provider"><legend>Email provider(s)</legend>
-<div class="radios"><label><input type="checkbox" name="email_provider" value="google"> Google (Gmail or Google Workspace)</label><label><input type="checkbox" name="email_provider" value="microsoft"> Microsoft 365 or Exchange</label><label><input type="checkbox" name="email_provider" value="other"> Other</label></div>
-<span class="err"></span></fieldset>
+<div class="radios"><label><input type="checkbox" name="email_provider" value="google"> Google (Gmail or Google Workspace)</label><label><input type="checkbox" name="email_provider" value="microsoft"> Microsoft 365 or Exchange</label><label><input type="checkbox" name="email_provider" value="other" id="ep-other"> Other</label></div>
+<span class="err"></span>
+<label class="f" for="other_email" id="other-wrap" hidden>What other email account(s)? (e.g. Yahoo, AOL)<input type="text" id="other_email" name="other_email" maxlength="40" autocomplete="off"><span class="err"></span></label>
+</fieldset>
 <fieldset id="fs-phone"><legend>Which phone do you use?</legend>
 <div class="radios"><label><input type="radio" name="phone" value="iphone" required> iPhone</label><label><input type="radio" name="phone" value="android"> Android</label></div>
 <span class="err"></span></fieldset>
 <fieldset id="fs-plan"><legend>Which plan would you like?</legend>
 <div class="plans">
-<label class="plan"><input type="radio" name="plan" value="standard" required><span><b>Standard $49/mo</b> <span class="help">Private server space. Add texts, voice, assistants anytime. Upgrade to Private anytime.</span></span></label>
-<label class="plan"><input type="radio" name="plan" value="private"><span><b>Private $99/mo</b> <span class="help">Private server. Includes texts, voice, and your first assistant. Downgrade to Standard anytime.</span></span></label>
+<label class="plan"><input type="radio" name="plan" value="standard" required><span><b>Standard $49/mo</b> <span class="help">Private server space. Add texts, voice, assistants anytime. Upgrade to Private anytime. AI key costs additional. Bervo is free until January 5, 2027. Cancel anytime.</span></span></label>
+<label class="plan"><input type="radio" name="plan" value="private"><span><b>Private $99/mo</b> <span class="help">Private server. Includes texts, voice, and your first assistant. Downgrade to Standard anytime. AI key costs additional. Bervo is free until January 5, 2027. Cancel anytime.</span></span></label>
 </div>
 <span class="err"></span></fieldset>
 <label class="f" for="about">Tell us about you and your business<span class="help">What type of company and what are the biggest needs or pain points you have related to emails, texts, calendar, contacts, commitments, and projects? You can also ask any question here. We'll get back to you.</span><textarea id="about" name="about" required maxlength="1000" rows="6"></textarea><span class="counter" id="about-count">0 of 1,000</span><span class="err"></span></label>
