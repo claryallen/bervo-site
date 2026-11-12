@@ -15,7 +15,8 @@ import { _resetAccessKeyCache, ABOUT_MAX, escapeHtml, stripFormatChars, TRIMMED_
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const SCHEMA = readFileSync(path.join(ROOT, "functions/_dev/migrations/0001_invite_requests.sql"), "utf8") + "\n" +
-  readFileSync(path.join(ROOT, "functions/_dev/migrations/0003_other_email.sql"), "utf8");
+  readFileSync(path.join(ROOT, "functions/_dev/migrations/0003_other_email.sql"), "utf8") + "\n" +
+  readFileSync(path.join(ROOT, "functions/_dev/migrations/0004_computers.sql"), "utf8");
 const NOW = Date.parse("2026-11-12T15:00:00Z");
 const ORIGIN = "https://bervo.ai";
 const TEAM = "bervo.cloudflareaccess.com";
@@ -69,7 +70,7 @@ const ENV = (db) => ({ DB: db, TURNSTILE_SECRET: "test-secret", RATE_LIMIT_SALT:
 function validFields(over = {}) {
   return {
     first_name: "Pat", last_name: "Sample", email: "Pat@Example.com", company: "Sample Co", role: "Owner",
-    has_assistant: "yes", email_provider: "google", phone: "iphone", plan: "private", about: "I run a small firm.",
+    has_assistant: "yes", email_provider: "google", computer: "mac", phone: "iphone", plan: "private", about: "I run a small firm.",
     privacy: "yes", tz: "America/Chicago", referral: "", website: "", t: String(NOW - 10000),
     "cf-turnstile-response": "good-token", ...over,
   };
@@ -608,7 +609,7 @@ function pageSandbox({ config, search = "", onPlan } = {}) {
   const errHolder = (id) => ({ querySelector: () => (errs[id] ||= { textContent: "" }) });
   for (const id of ["t", "tz", "referral", "first_name", "last_name", "email", "company", "role", "about", "about-count",
     "privacy", "privacy-err", "submit", "fs-has_assistant", "fs-email_provider", "fs-phone", "fs-plan", "ep-other",
-    "other-wrap", "other_email"]) mk(id);
+    "other-wrap", "other_email", "fs-computer", "cp-windows", "cp-mac", "cp-none"]) mk(id);
   mk("send-err", { hidden: true });            // the page ships it with the hidden attribute
   let token = null;
   const radios = {};
@@ -637,7 +638,7 @@ function pageSandbox({ config, search = "", onPlan } = {}) {
   return { els, errs, form, radios, scripts, window, fill() {
     for (const id of ["first_name", "last_name", "company", "role", "about"]) els[id].value = "x";
     els.email.value = "a@b.co"; els.privacy.checked = true;
-    Object.assign(radios, { has_assistant: 1, email_provider: 1, phone: 1, plan: 1 });
+    Object.assign(radios, { has_assistant: 1, email_provider: 1, computer: 1, phone: 1, plan: 1 });
   } };
 }
 async function loadTurnstile(p) {           // the Turnstile script's onload callback, then let fetch settle
@@ -697,7 +698,7 @@ test("/invite and /invite-thanks: only same-origin script files, no inline scrip
     const html = readFileSync(path.join(ROOT, f), "utf8");
     const tags = [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/g)];
     assert.equal(tags.length, 1, f);
-    assert.match(tags[0][1], /^ src="\/invite(-thanks)?\.js"$/, f);
+    assert.match(tags[0][1], /^ src="\/invite(-thanks)?\.js(\?v=\d+)?"$/, f);   // ?v=N: cache-busting version only
     assert.equal(tags[0][2].trim(), "", f + ": no inline code");
     assert.ok(!/\son[a-z]+=/i.test(html), f + ": no inline event handlers");
     assert.ok(!/javascript:/i.test(html), f);
@@ -817,4 +818,35 @@ test("page: the other-account box shows only while Other is ticked, and is requi
   const html = readFileSync(path.join(ROOT, "invite.html"), "utf8");
   assert.match(html, /What other email account\(s\)\? \(e\.g\. Yahoo, AOL\)/);
   assert.equal((html.match(/AI key costs additional\. Bervo is free until January 5, 2027\. Cancel anytime\./g) || []).length, 2);
+});
+
+// ---------- "Which type of computer(s) do you use?" (Allen 11-11) ----------
+test("computer(s): any of Windows/Mac, or Neither alone; required; stored in fixed order; shown; trimmed", async () => {
+  const db = makeD1();
+  await post(db, validFields({ computer: ["mac", "windows"] }), { ip: "198.51.100.210" });
+  await post(db, validFields({ computer: "none" }), { ip: "198.51.100.211" });
+  assert.deepEqual(rows(db).map((r) => r.computers), ['["windows","mac"]', '["none"]']);
+  const none = validFields(); delete none.computer;
+  for (const [i, bad] of [none, validFields({ computer: ["none", "mac"] }), validFields({ computer: "ipad" })].entries())
+    assert.equal((await post(db, bad, { ip: "198.51.100." + (212 + i) })).location, "/invite?e=invalid", "refused " + i);
+  assert.equal(rows(db).length, 2);
+  assert.throws(() => db.raw.prepare(`UPDATE invite_requests SET computers='["mac","windows"]' WHERE id=1`).run(), /CHECK/);
+  const page = (await adminGet(db, { jwt: await makeJwt({}) })).body;
+  assert.ok(page.includes("<dt>Computer(s)</dt><dd>Windows PC, Mac</dd>") && page.includes("<dd>Neither (iPad and/or phone only)</dd>"));
+  assert.ok(TRIMMED_COLUMNS.includes("computers"));
+});
+
+test("page: computer question before the phone question; Neither and a computer can't both be ticked; scripts versioned", () => {
+  const html = readFileSync(path.join(ROOT, "invite.html"), "utf8");
+  assert.ok(html.indexOf("Which type of computer(s) do you use?") < html.indexOf("Which phone do you use?"));
+  for (const t of ["> Windows PC</label>", "> MacBook, iMac or Mac mini</label>", "> Neither (iPad and/or phone only)</label>"]) assert.ok(html.includes(t), t);
+  assert.match(html, /<script src="\/invite\.js\?v=\d+"><\/script>/);
+  const headers = readFileSync(path.join(ROOT, "_headers"), "utf8");
+  assert.match(headers, /\/invite\.js\n  Cache-Control: no-cache/);
+  const p = pageSandbox({ config: true });
+  p.els["cp-mac"].checked = true; p.els["cp-mac"].listeners.change();
+  p.els["cp-none"].checked = true; p.els["cp-none"].listeners.change();
+  assert.equal(p.els["cp-mac"].checked, false, "Neither clears Mac");
+  p.els["cp-windows"].checked = true; p.els["cp-windows"].listeners.change();
+  assert.equal(p.els["cp-none"].checked, false, "a computer clears Neither");
 });

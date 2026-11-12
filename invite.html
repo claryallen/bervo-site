@@ -44,6 +44,9 @@ button:disabled{opacity:.6;cursor:default}footer{margin-top:2rem;font-size:.85re
 <span class="err"></span>
 <label class="f" for="other_email" id="other-wrap" hidden>What other email account(s)? (e.g. Yahoo, AOL)<input type="text" id="other_email" name="other_email" maxlength="40" autocomplete="off"><span class="err"></span></label>
 </fieldset>
+<fieldset id="fs-computer"><legend>Which type of computer(s) do you use?</legend>
+<div class="radios"><label><input type="checkbox" name="computer" value="windows" id="cp-windows"> Windows PC</label><label><input type="checkbox" name="computer" value="mac" id="cp-mac"> MacBook, iMac or Mac mini</label><label><input type="checkbox" name="computer" value="none" id="cp-none"> Neither (iPad and/or phone only)</label></div>
+<span class="err"></span></fieldset>
 <fieldset id="fs-phone"><legend>Which phone do you use?</legend>
 <div class="radios"><label><input type="radio" name="phone" value="iphone" required> iPhone</label><label><input type="radio" name="phone" value="android"> Android</label></div>
 <span class="err"></span></fieldset>
@@ -65,5 +68,5 @@ button:disabled{opacity:.6;cursor:default}footer{margin-top:2rem;font-size:.85re
 </form>
 </section>
 <footer>© 2026 Bervo LLC</footer></div>
-<script src="/invite.js"></script>
+<script src="/invite.js?v=3"></script>
 </body></html>
