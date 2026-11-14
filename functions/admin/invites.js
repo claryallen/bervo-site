@@ -73,7 +73,7 @@ function refused(status) {
 
 function fmt(iso) { return iso ? escapeHtml(String(iso).replace("T", " ").slice(0, 16) + " UTC") : ""; }
 
-const PLAN_NAMES = { standard: "Standard $49/mo", private: "Private $99/mo" };
+const PLAN_NAMES = { standard: "Standard $49/mo", private: "Dedicated $99/mo" };
 const PROVIDER_NAMES = { google: "Google", microsoft: "Microsoft 365 or Exchange", other: "Other" };
 const HEARD_NAMES = { referral: "Referred by someone", social: "Social Media", search: "Web Search (Google, etc.)",
   ai: "AI told me (ChatGPT, Claude, Gemini, etc.)", media: "An article, podcast or newsletter", ad: "An online ad",

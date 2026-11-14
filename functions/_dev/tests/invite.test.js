@@ -723,12 +723,12 @@ test("plan: required, allowlisted, stored and shown; Standard listed first", asy
   assert.deepEqual(rows(db).map((r) => r.plan), ["standard", "private"]);
   assert.throws(() => db.raw.prepare("UPDATE invite_requests SET plan='gold' WHERE id=1").run(), /CHECK/);
   const page = await adminGet(db, { jwt: await makeJwt({}) });
-  assert.ok(page.body.includes("<dt>Plan</dt><dd>Standard $49/mo</dd>") && page.body.includes("<dd>Private $99/mo</dd>"));
+  assert.ok(page.body.includes("<dt>Plan</dt><dd>Standard $49/mo</dd>") && page.body.includes("<dd>Dedicated $99/mo</dd>"));
   const html = readFileSync(path.join(ROOT, "invite.html"), "utf8");
   assert.ok(html.indexOf('value="standard"') < html.indexOf('value="private"'), "Standard first");
   assert.ok(html.indexOf('name="phone" value="android"') < html.indexOf("<legend>Which plan would you like?</legend>"), "after the phone question");
-  for (const t of ['<label class="plan"><input type="radio" name="plan" value="standard" required><span><b>Standard $49/mo</b> <span class="help">Private server space. Add texts, voice, assistants anytime. Upgrade to Private anytime. AI key costs additional. Bervo is free until January 5, 2027. Cancel anytime.</span></span></label>',
-    '<label class="plan"><input type="radio" name="plan" value="private"><span><b>Private $99/mo</b> <span class="help">Private server. Includes texts, voice, and your first assistant. Downgrade to Standard anytime. AI key costs additional. Bervo is free until January 5, 2027. Cancel anytime.</span></span></label>'])
+  for (const t of ['<label class="plan"><input type="radio" name="plan" value="standard" required><span><b>Standard $49/mo</b> <span class="help">Your own walled-off account. Add texts, voice, assistants anytime. Upgrade to Dedicated anytime. AI key costs additional. Bervo is free until January 5, 2027. Cancel anytime.</span></span></label>',
+    '<label class="plan"><input type="radio" name="plan" value="private"><span><b>Dedicated $99/mo</b> <span class="help">Your own server. Includes texts, voice, and your first assistant. Downgrade to Standard anytime. AI key costs additional. Bervo is free until January 5, 2027. Cancel anytime.</span></span></label>'])
     assert.ok(html.includes(t), "radio left of the bold name and grey line: " + t.slice(0, 60));
 });
 
