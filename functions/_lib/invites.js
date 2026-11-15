@@ -151,6 +151,13 @@ export async function pruneOld(db, nowMs) {
     await db.prepare("UPDATE invite_mail SET address_hash = NULL WHERE address_hash IS NOT NULL AND request_id IN " +
       "(SELECT id FROM invite_requests WHERE status = 'claimed')").run();
   } catch { /* the 0002 table is not there yet */ }
+  // CR-AUTOPROVISION.1: a build record and a waiting link go with their request; a link also goes on expiry and the
+  // moment the request is no longer approved/invited (claimed, expired, not now).
+  try {
+    await db.prepare("DELETE FROM invite_links WHERE expires_at <= ? OR request_id NOT IN " +
+      "(SELECT id FROM invite_requests WHERE status IN ('approved', 'invited'))").bind(new Date(nowMs).toISOString()).run();
+    await db.prepare("DELETE FROM invite_provision WHERE request_id NOT IN (SELECT id FROM invite_requests)").run();
+  } catch { /* the 0007 tables are not there yet */ }
 }
 
 export function stripFormatChars(v) { return String(v ?? "").replace(FORMAT_CHARS, ""); }

@@ -16,6 +16,16 @@ files that export `onRequest…`. So everything that is not part of the site liv
   (Basic auth, Pages secret `POSTMARK_WEBHOOK_SECRET`). `functions/api/account-mail.js` takes the router's signed
   "you're loaded" request (Pages secret `BERVO_MAIL_RELAY_SECRET`, the same value as the router's). Tests:
   `functions/_dev/tests/mail.test.js` (Postmark mocked).
+- **Automatic server builds (CR-AUTOPROVISION.1, Allen 11-15):** `functions/_dev/migrations/0007_provisioning.sql`
+  (run after 0006, before publishing the code), `functions/_lib/provision.js`, `functions/api/provision-state.js`
+  (the Mini's picker records a build: claim / step / ready / failed / waiting_cap) and `functions/api/provision-link.js`
+  (the Mini delivers the owner's one-time link; stored AES-GCM encrypted until Allen presses Send on the admin page,
+  deleted when sent and on expiry). Pages settings, names only (Allen places every value):
+  `BERVO_PROVISION_SECRET` (secret, 32+ characters; the same value as the Mini's 600 file
+  `~/.config/bervo/provision_secret`), `BERVO_LINK_KEY` (secret, 32+ characters, a different value; never on the
+  Mini), `AUTO_SEND_INVITE` and `AUTO_SEND_REMINDERS` (variables, leave unset = off; "on" only with Allen's go).
+  The Mini's D1 token stays read-only: a D1 token cannot be limited below the whole account's D1. Tests:
+  `functions/_dev/tests/provision.test.js`.
 - `functions/_dev/tests/invite.test.js` — tests: `node --experimental-default-type=module --test functions/_dev/tests/invite.test.js`
   (Node 22+, no packages; D1 is mocked over `node:sqlite` with the real schema). It exports nothing, so it is never a route.
 
