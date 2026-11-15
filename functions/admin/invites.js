@@ -8,10 +8,16 @@
 //   ADMIN_EMAILS        comma-separated addresses allowed in (Allen's)
 //   DB                  the same D1 binding as the form
 //
-// Approve / Not now / Mark invited / the note change ONLY the D1 row. Nothing here touches a server; the
-// orchestrator reads an approved row with tools/tenant/invite_to_profile.py (daily-dashboard).
+// Approve / Not now / Mark invited / the note change ONLY the D1 row. Nothing here touches a server.
+// CR-AUTOPROVISION.1 (Allen 11-15, "Approve is the go"): the Mini's picker (daily-dashboard
+// tools/tenant/auto_provision.py, every 5 minutes) sees an approved request with a slug, builds its server and
+// delivers the owner's link to /api/provision-link. This page shows the build (queued / building, step N of 14 /
+// ready / failed at <step> / waiting: daily cap), a Retry button for a failed build (failed -> queued; the build
+// continues from the failed step), and "link ready (expires <date>)" with Send buttons that send the delivered link
+// server side (it is never put in this page). The paste field stays as the fallback for a hand-made link.
 import { checkAccess, escapeHtml, pruneOld, redirect, SLUG_RE, stripFormatChars, TRIM_SET } from "../_lib/invites.js";
 import { inviteBody, linkMatchesSlug, needsIphoneNoMacNote, MailError, reminderDue, reminderExpiryDate, sendingOff, sendTemplate, TEMPLATES } from "../_lib/mail.js";
+import { BUILD_STEPS, deleteLink, linksFor, provisionFor, readLink, sendLinkEmail, TEMPLATE_KIND } from "../_lib/provision.js";
 
 // The invite email (words: daily-dashboard docs/marketing/site/INVITE_FORM_COPY_V1.md §5, approved by Allen 11-10;
 // they live in functions/_lib/mail.js now, the one sender). CR-WELCOMEEMAIL.1: **Send invite email** sends it
@@ -25,7 +31,11 @@ const MAIL_LABEL = { invite: "Invite email", reminder_day3: "Day-3 reminder", re
 const SENT_FLASH = { ok: "Invite email sent.", reminder: "Reminder sent.", notdue: "Not sent: no reminder is due for this request.", off: "Not sent: sending is off. Use Copy below.",
   host: "Not sent: that link is for another server (this request's slug is on a different host). Nothing was sent.",
   link: "Not sent: that is not an owner link (https://<server>.bervo.ai/set-password?t=…). Nothing was sent.",
-  failed: "Not sent: Postmark did not take it. Use Copy below, or try again." };
+  failed: "Not sent: Postmark did not take it. Use Copy below, or try again.",
+  // CR-AUTOPROVISION.1: Send with the link the Mini delivered (stored encrypted; never on this page).
+  nolink: "Not sent: the delivered link is gone (sent already, or expired). Paste a hand-made link, or Retry the build.",
+  state: "Not sent: this request is not approved or invited.",
+  retried: "Build queued again: the Mini picks it up within 5 minutes and continues from the failed step." };
 
 const TRANSITIONS = {
   approve: { to: "approved", from: ["new", "not_now"], stamp: "approved_at" },
@@ -89,12 +99,17 @@ function renderMail(list) {
     `${m.status === "failed" && m.error_code != null ? ` · code ${e(m.error_code)}` : ""}</li>`).join("")}</ul>`;
 }
 
-function renderReminder(r, mails, mailOff, nowMs) {
+function renderReminder(r, mails, mailOff, nowMs, links = {}) {
   const due = reminderDue(r, mails || [], nowMs);
   if (!due) return "";
   const e = escapeHtml;
   const label = due === "reminder_day3" ? "Day-3 reminder" : "Day-10 reminder";
-  return `<div class="remind"><p><b>${label} due.</b> On the Mini, run <code>tools/tenant/owner_invite_link.py</code> for
+  const ready = links[TEMPLATE_KIND[due]];
+  const stored = ready ? `<p class="ready"><b>Fresh link ready</b> (made by the Mini; expires ${fmt(ready)}).</p>
+${mailOff ? "" : `<form method="post" action="/admin/invites" class="send"><input type="hidden" name="id" value="${e(r.id)}">
+<input type="hidden" name="kind" value="${e(TEMPLATE_KIND[due])}">
+<button name="action" value="send_reminder_stored" type="submit">Send ${label.toLowerCase()}</button> to ${em(r.email)} with the delivered link</form>`}` : "";
+  return `<div class="remind">${stored}<p><b>${label} due.</b> On the Mini, run <code>tools/tenant/owner_invite_link.py</code> for
 this customer again: it makes a fresh link and the earlier one stops working. Paste the fresh link here and send it within a
 day (the email says the link stays open until ${e(reminderExpiryDate(nowMs, r.timezone))}).</p>
 ${mailOff ? `<p class="off">Sending is off (${e(mailOff)}).</p>` : `<form method="post" action="/admin/invites" class="send">
@@ -104,7 +119,34 @@ ${mailOff ? `<p class="off">Sending is off (${e(mailOff)}).</p>` : `<form method
 </form>`}</div>`;
 }
 
-function renderRow(r, mails = [], mailOff = null, flash = "", nowMs = Date.now()) {
+// The automatic build (CR-AUTOPROVISION.1): its state, Retry when it failed, and the delivered invite link.
+const STATE_WORDS = { queued: "queued (the Mini picks it up within 5 minutes)", ready: "ready", waiting_cap: "waiting: daily cap (runs when a slot frees up)" };
+function renderBuild(r, prov, links = {}, mailOff = null) {
+  const e = escapeHtml;
+  let line;
+  if (!prov) {
+    if (r.status !== "approved") return "";
+    line = r.slug ? "not started yet (the Mini picks it up within 5 minutes)"
+      : "not built automatically: this request has no slug (build it by hand, or Not now and Approve again with a slug)";
+  } else if (prov.state === "building") {
+    const n = BUILD_STEPS.indexOf(prov.step);
+    line = n >= 0 ? `building, step ${n + 1} of ${BUILD_STEPS.length} (${e(prov.step)})` : prov.step ? `building (${e(prov.step)})` : "building";
+  } else if (prov.state === "failed") {
+    line = `failed at ${e(prov.step || "an unknown step")}`;
+  } else {
+    line = e(STATE_WORDS[prov.state] || prov.state);
+  }
+  const retry = prov && prov.state === "failed" ? `<form method="post" action="/admin/invites" class="act"><input type="hidden" name="id" value="${e(r.id)}">
+<button name="action" value="retry_build" type="submit">Retry</button> (continues from the failed step)</form>` : "";
+  const inv = links.invite;
+  const send = inv ? `<p class="ready"><b>Invite link ready</b> (made by the Mini; expires ${fmt(inv)}).</p>
+${mailOff ? `<p class="off">Sending is off (${e(mailOff)}); the link waits here until sending is on, or it expires.</p>`
+    : `<form method="post" action="/admin/invites" class="send"><input type="hidden" name="id" value="${e(r.id)}">
+<button name="action" value="send_invite_stored" type="submit">Send invite email</button> to ${em(r.email)} with the delivered link</form>`}` : "";
+  return `<div class="build"><p>Server: <span class="bs bs-${e(prov ? prov.state : "none")}">${line}</span>${prov && prov.finished_at ? ` · ${fmt(prov.finished_at)}` : ""}</p>${retry}${send}</div>`;
+}
+
+function renderRow(r, mails = [], mailOff = null, flash = "", nowMs = Date.now(), prov = null, links = {}) {
   const e = escapeHtml;
   const personal = r.referral === "allen" ? ` <span class="badge">Personal invite</span>` : "";
   const btn = (action, label) =>
@@ -152,7 +194,8 @@ ${slugField}
 </form>
 ${renderMail(mails)}
 ${flash ? `<p class="flash">${e(flash)}</p>` : ""}
-${r.status === "invited" ? renderReminder(r, mails, mailOff, nowMs) : ""}
+${r.status === "approved" || r.status === "invited" ? renderBuild(r, prov, links, mailOff) : ""}
+${r.status === "invited" ? renderReminder(r, mails, mailOff, nowMs, links) : ""}
 ${r.status === "approved" || r.status === "invited" ? `<div class="copy" data-first="${e(r.first_name)}" data-variant="${needsIphoneNoMacNote(r.phone, r.computers) ? "note" : "plain"}">
 <form method="post" action="/admin/invites" class="send">
 <input type="hidden" name="id" value="${e(r.id)}">
@@ -185,6 +228,8 @@ export async function onRequestGet(context) {
     (statuses ? ` WHERE status IN (${statuses.map(() => "?").join(",")})` : "") + " ORDER BY id DESC LIMIT 300";
   const { results } = await env.DB.prepare(sql).bind(...(statuses || [])).all();
   const mails = await mailsFor(env.DB, results.map((r) => r.id));
+  const provs = await provisionFor(env.DB, results.map((r) => r.id));
+  const links = await linksFor(env.DB, results.map((r) => r.id));
   const flashId = Number(url.searchParams.get("r"));
   const flash = Object.hasOwn(SENT_FLASH, url.searchParams.get("sent") || "") ? SENT_FLASH[url.searchParams.get("sent")] : "";
   const nonce = [...crypto.getRandomValues(new Uint8Array(16))].map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -202,9 +247,9 @@ dl{display:grid;grid-template-columns:10rem 1fr;gap:.1rem .75rem;margin:.5rem 0}
 textarea,input{width:100%;box-sizing:border-box;font:inherit}label{display:block;margin:.4rem 0}.buttons{margin-top:.4rem}
 .copy{margin-top:.6rem;border-top:1px dashed #ccc;padding-top:.5rem}
 .mail-log{margin:.4rem 0;padding-left:1.2rem}.ms{border-radius:4px;padding:0 .4em;background:#eee}.ms-delivered{background:#d1fae5}
-.ms-bounced,.ms-complained,.ms-failed{background:#fee2e2}.remind{background:#eff6ff;border-radius:6px;padding:.3rem .7rem;margin:.5rem 0}.flash{background:#fef3c7;border-radius:6px;padding:.3rem .6rem}.off{color:#7a4b00}</style></head><body>
+.ms-bounced,.ms-complained,.ms-failed{background:#fee2e2}.build{margin:.5rem 0}.bs{border-radius:4px;padding:0 .4em;background:#eee}.bs-ready{background:#d1fae5}.bs-failed{background:#fee2e2}.bs-waiting_cap{background:#fef3c7}.ready{margin:.3rem 0}.remind{background:#eff6ff;border-radius:6px;padding:.3rem .7rem;margin:.5rem 0}.flash{background:#fef3c7;border-radius:6px;padding:.3rem .6rem}.off{color:#7a4b00}</style></head><body>
 <h1>Invite requests</h1><p>Signed in as ${em(auth.email)} · Show: ${nav}</p>
-${results.length ? results.map((r) => renderRow(r, mails.get(r.id), mailOff, r.id === flashId ? flash : "", nowMs)).join("\n") : "<p>None.</p>"}
+${results.length ? results.map((r) => renderRow(r, mails.get(r.id), mailOff, r.id === flashId ? flash : "", nowMs, provs.get(r.id) || null, links.get(r.id) || {})).join("\n") : "<p>None.</p>"}
 ${renderServerMail(await serverMails(env.DB))}
 <script nonce="${nonce}">
 const TEMPLATES = { plain: ${JSON.stringify(INVITE_EMAIL_TEMPLATE).replace(/</g, "\\u003c")}, note: ${JSON.stringify(inviteBody("iphone", '["none"]')).replace(/</g, "\\u003c")} };
@@ -273,6 +318,22 @@ async function sendReminder(context, env, id, form, nowMs) {
   }
 }
 
+// Send with the link the Mini delivered (CR-AUTOPROVISION.1): decrypted here for this one email, deleted once sent.
+async function sendStored(context, env, id, kind, nowMs) {
+  const back = (code) => redirect(`/admin/invites?sent=${code}&r=${id}#r${id}`);
+  const row = await env.DB.prepare("SELECT id, status, first_name, email, slug, phone, computers, timezone FROM invite_requests WHERE id = ?").bind(id).first();
+  if (!row) return refused(404);
+  if (sendingOff(env)) return back("off");
+  const link = await readLink(env.DB, env, id, kind, nowMs);
+  if (!link) return back("nolink");
+  const why = await sendLinkEmail({ db: env.DB, env, row, kind, link, nowMs, fetchImpl: context.mailFetch || fetch, say: context.say || console.log });
+  if (why === "ok") {
+    await deleteLink(env.DB, id, kind);
+    return back(kind === "invite" ? "ok" : "reminder");
+  }
+  return back(why);
+}
+
 // Send invite email: the request must be approved or invited. Success marks an approved request invited.
 async function sendInvite(context, env, id, form, nowMs) {
   const back = (code) => redirect(`/admin/invites?sent=${code}&r=${id}#r${id}`);
@@ -320,6 +381,20 @@ export async function onRequestPost(context) {
   const nowIso = new Date(context.nowMs ?? Date.now()).toISOString();
   if (action === "send_invite") return sendInvite(context, env, id, form, context.nowMs ?? Date.now());
   if (action === "send_reminder") return sendReminder(context, env, id, form, context.nowMs ?? Date.now());
+  if (action === "send_invite_stored") return sendStored(context, env, id, "invite", context.nowMs ?? Date.now());
+  if (action === "send_reminder_stored") {
+    const kind = String(form.get("kind") || "");
+    if (kind !== "reminder3" && kind !== "reminder10") return refused(400);
+    return sendStored(context, env, id, kind, context.nowMs ?? Date.now());
+  }
+  if (action === "retry_build") {
+    // failed -> queued: the picker claims it again and new_customer.sh resumes at the failed step.
+    try {
+      await env.DB.prepare("UPDATE invite_provision SET state = 'queued', retry_requested_at = ?, updated_at = ? WHERE request_id = ? AND state = 'failed'")
+        .bind(nowIso, nowIso, id).run();
+    } catch { /* no 0007 table yet */ }
+    return redirect(`/admin/invites?sent=retried&r=${id}#r${id}`);
+  }
   const note = stripFormatChars(String(form.get("note") ?? "").replace(/\r\n?/g, "\n")).trim().slice(0, 2000);
   if (action === "note") {
     if (row.status === "claimed") return redirect(`/admin/invites#r${id}`);   // a trimmed row takes no note
@@ -341,6 +416,10 @@ export async function onRequestPost(context) {
   if (action === "approve") { sets.push("slug = COALESCE(?, slug)"); args.push(slug); }
   await env.DB.prepare(`UPDATE invite_requests SET ${sets.join(", ")} WHERE id = ? AND status = ?`)
     .bind(...args, id, row.status).run();
+  if (t.to !== "approved" && t.to !== "invited") {
+    // CR-AUTOPROVISION.1: a delivered link never outlives an open request.
+    for (const k of ["invite", "reminder3", "reminder10"]) await deleteLink(env.DB, id, k);
+  }
   if (t.trim) {
     // The trimmed request keeps no address; its emails keep no address hash either (template, status, dates stay).
     try { await env.DB.prepare("UPDATE invite_mail SET address_hash = NULL WHERE request_id = ?").bind(id).run(); }
