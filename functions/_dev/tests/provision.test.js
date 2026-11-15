@@ -396,3 +396,12 @@ test("F5 the note codes are the same set as the Mini's invite_to_profile.py NOTE
   const py = [...src.match(/NOTE_CODES = \(([^)]*)\)/s)[1].matchAll(/"([a-z_]+)"/g)].map((m) => m[1]);
   assert.deepEqual(py, prov.NOTE_CODES);
 });
+
+test("G2 migration: 0007 is the one and final shape (stopped + notes in the CREATE); no other migration touches these tables", () => {
+  const m7 = MIG("0007_provisioning.sql");
+  assert.match(m7, /state IN \('queued', 'building', 'ready', 'failed', 'waiting_cap', 'stopped'\)/);
+  assert.match(m7, /\bnotes\s+TEXT CHECK/);
+  const others = execFileSync("git", ["ls-files", "functions/_dev/migrations"], { cwd: ROOT, encoding: "utf8" })
+    .split("\n").filter((f) => f && !f.endsWith("0007_provisioning.sql"));
+  for (const f of others) assert.ok(!/invite_provision|invite_links|provision_nonces/.test(readFileSync(path.join(ROOT, f), "utf8")), f);
+});
