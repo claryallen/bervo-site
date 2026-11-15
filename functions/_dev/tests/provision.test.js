@@ -4,6 +4,7 @@
 // Run: node --experimental-default-type=module --test functions/_dev/tests/provision.test.js   (Node 22+, no packages)
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
@@ -28,6 +29,7 @@ const LINK = `https://zz-test.bervo.ai/set-password?t=${TOKEN}`;
 const TOKEN2 = "Z9y8X7w6V5u4T3s2R1q0P9o8N7m6L5k4J3i2H1g0F9e";
 const LINK2 = `https://zz-test.bervo.ai/set-password?t=${TOKEN2}`;
 const ADDRESS = "pat@example.com";
+const FAKE_PM = "fake-postmark-token-for-tests";
 
 function makeD1() {
   const sql = new DatabaseSync(":memory:");
@@ -72,7 +74,7 @@ function postmark(calls = [], mode = "ok") {
     return Response.json({ MessageID: `0a129aee-e1cd-480d-b08d-4f48548ff4${String(n).padStart(2, "0")}`, ErrorCode: 0, Message: "OK" });
   };
 }
-const ENV = (db, over = {}) => ({ DB: db, BERVO_PROVISION_SECRET: SECRET, BERVO_LINK_KEY: LINK_KEY, POSTMARK_SERVER_TOKEN: "fake-postmark",
+const ENV = (db, over = {}) => ({ DB: db, BERVO_PROVISION_SECRET: SECRET, BERVO_LINK_KEY: LINK_KEY, POSTMARK_SERVER_TOKEN: FAKE_PM,
   MAIL_REPLY_TO: "allen@bervo.ai", RATE_LIMIT_SALT: "test-salt", ACCESS_TEAM_DOMAIN: TEAM, ACCESS_AUD: AUD, ADMIN_EMAILS: "allen@bervo.ai", ...over });
 
 async function hmac(secret, msg) {
@@ -224,7 +226,7 @@ test("L1 a delivered link is stored encrypted: not in any D1 column, not in a lo
   // a newer delivery replaces the older
   await link(db, { request_id: id, kind: "invite", link: LINK2 });
   assert.equal(linkRows(db).length, 1);
-  assert.equal(await prov.readLink(db, ENV(db), id, "invite", NOW), LINK2);
+  assert.equal((await prov.readLink(db, ENV(db), id, "invite", NOW)).link, LINK2);
 });
 
 test("L2 link refusals: no link key 503 (nothing stored), wrong host, no slug, wrong state, unknown request, bad link/kind", async () => {
@@ -307,6 +309,12 @@ test("A2 AUTO_SEND_REMINDERS: off never sends; on sends only the due reminder, n
   // Allen's Send with the delivered reminder link
   assert.match(await adminPost(db, { id: String(id), action: "send_reminder_stored", kind: "reminder3" }, { calls }), /sent=reminder/);
   assert.deepEqual([calls.length, calls[0].body.Tag, linkRows(db).length], [1, "reminder_day3", 0]);
+  // a reminder Allen sends days after its link arrived states the link's real closing date (minted + 13 days), not now + 13
+  db = makeD1(); id = seed(db); inviteSent(db, id, 3.5); calls = [];
+  await link(db, { request_id: id, kind: "reminder3", link: LINK });
+  const later = NOW + 4 * 86400000;
+  assert.match(await adminPost(db, { id: String(id), action: "send_reminder_stored", kind: "reminder3" }, { calls, nowMs: later }), /sent=reminder/);
+  assert.ok(calls[0].body.TextBody.includes("It stays open until November 28."), calls[0].body.TextBody);
   // on: sent at once
   db = makeD1(); id = seed(db); inviteSent(db, id, 3.5); calls = [];
   let r = await link(db, { request_id: id, kind: "reminder3", link: LINK }, { env: ENV(db, { AUTO_SEND_REMINDERS: "on" }), calls });
@@ -320,4 +328,16 @@ test("A2 AUTO_SEND_REMINDERS: off never sends; on sends only the due reminder, n
   db = makeD1(); id = seed(db); calls = [];
   await link(db, { request_id: id, kind: "invite", link: LINK }, { env: ENV(db, { AUTO_SEND_REMINDERS: "on" }), calls });
   assert.deepEqual([calls.length, linkRows(db).length], [0, 1]);
+});
+
+test("G1 no value next to BERVO_PROVISION_SECRET or BERVO_LINK_KEY in any tracked file (only this test's made-up ones)", () => {
+  const files = execFileSync("git", ["ls-files"], { cwd: ROOT, encoding: "utf8" }).split("\n").filter(Boolean);
+  for (const f of files) {
+    if (/\.(pkg|png|jpg|ico|pdf|woff2?)$/i.test(f) || f.endsWith("provision.test.js")) continue;
+    let text;
+    try { text = readFileSync(path.join(ROOT, f), "utf8"); } catch { continue; }
+    for (const ln of text.split("\n")) {
+      if (/(BERVO_PROVISION_SECRET|BERVO_LINK_KEY)\s*[=:]\s*["']?[A-Za-z0-9_-]{8,}/.test(ln)) assert.fail(`${f}: a value next to a provision secret`);
+    }
+  }
 });

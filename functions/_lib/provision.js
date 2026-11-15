@@ -130,13 +130,16 @@ export async function dropExpiredLinks(db, nowMs) {
   catch { /* no 0007 table yet */ }
 }
 
-// The waiting link in plain text (for the one email being sent), or null (none, expired, or unreadable).
+// The waiting link in plain text (for the one email being sent) with when it arrived, or null (none, expired, or
+// unreadable). -> { link, issuedMs }
 export async function readLink(db, env, requestId, kind, nowMs) {
   await dropExpiredLinks(db, nowMs);
   let row = null;
-  try { row = await db.prepare("SELECT iv, ct FROM invite_links WHERE request_id = ? AND kind = ?").bind(requestId, kind).first(); }
+  try { row = await db.prepare("SELECT iv, ct, created_at FROM invite_links WHERE request_id = ? AND kind = ?").bind(requestId, kind).first(); }
   catch { return null; }
-  return row ? decryptLink(env, requestId, kind, row.iv, row.ct) : null;
+  if (!row) return null;
+  const link = await decryptLink(env, requestId, kind, row.iv, row.ct);
+  return link ? { link, issuedMs: Date.parse(row.created_at) } : null;
 }
 
 export async function deleteLink(db, requestId, kind) {
@@ -173,7 +176,9 @@ export async function linksFor(db, ids) {
 // must be on the request's own host, a reminder only when reminderDue() names that reminder, and a sent invite marks
 // an approved request invited. Nothing here logs the link (mail.js logs a template, an address hash and a result).
 
-export async function sendLinkEmail({ db, env, row, kind, link, nowMs, fetchImpl = fetch, say = console.log }) {
+// issuedMs: when the link was minted (it arrived here moments later). A reminder states the link's closing date from
+// it, so a reminder Allen sends days after the link arrived never promises a date later than the link really lasts.
+export async function sendLinkEmail({ db, env, row, kind, link, nowMs, issuedMs = nowMs, fetchImpl = fetch, say = console.log }) {
   if (sendingOff(env)) return "off";
   if (!row.slug || !linkMatchesSlug(link, row.slug)) return "host";
   const template = KIND_TEMPLATE[kind];
@@ -186,7 +191,7 @@ export async function sendLinkEmail({ db, env, row, kind, link, nowMs, fetchImpl
     try { mails = (await db.prepare("SELECT * FROM invite_mail WHERE request_id = ? ORDER BY id DESC").bind(row.id).all()).results; }
     catch { return "failed"; }
     if (reminderDue(row, mails, nowMs) !== template) return "notdue";
-    fields = { first_name: row.first_name, link, expiry_date: reminderExpiryDate(nowMs, row.timezone) };
+    fields = { first_name: row.first_name, link, expiry_date: reminderExpiryDate(Math.min(issuedMs, nowMs), row.timezone) };
   }
   let res;
   try {

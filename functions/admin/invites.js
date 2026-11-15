@@ -324,9 +324,10 @@ async function sendStored(context, env, id, kind, nowMs) {
   const row = await env.DB.prepare("SELECT id, status, first_name, email, slug, phone, computers, timezone FROM invite_requests WHERE id = ?").bind(id).first();
   if (!row) return refused(404);
   if (sendingOff(env)) return back("off");
-  const link = await readLink(env.DB, env, id, kind, nowMs);
-  if (!link) return back("nolink");
-  const why = await sendLinkEmail({ db: env.DB, env, row, kind, link, nowMs, fetchImpl: context.mailFetch || fetch, say: context.say || console.log });
+  const stored = await readLink(env.DB, env, id, kind, nowMs);
+  if (!stored) return back("nolink");
+  const why = await sendLinkEmail({ db: env.DB, env, row, kind, link: stored.link, issuedMs: stored.issuedMs, nowMs,
+    fetchImpl: context.mailFetch || fetch, say: context.say || console.log });
   if (why === "ok") {
     await deleteLink(env.DB, id, kind);
     return back(kind === "invite" ? "ok" : "reminder");
