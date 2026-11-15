@@ -15,7 +15,7 @@
 //     expiry. The link is never logged and never put in any page.
 // Body: {"request_id": <int>, "kind": "invite" | "reminder3" | "reminder10", "link": "<https://…>"}.
 import { INVITE_LINK_RE, linkMatchesSlug } from "../_lib/mail.js";
-import { autoSendOn, dropExpiredLinks, KINDS, linkKeyReady, MAX_BYTES, reply, sendLinkEmail, storeLink, verifySigned } from "../_lib/provision.js";
+import { autoSendOn, deleteLink, dropExpiredLinks, KINDS, linkKeyReady, MAX_BYTES, reply, sendLinkEmail, storeLink, verifySigned } from "../_lib/provision.js";
 
 export async function onRequestPost(context) {
   const { request, env } = context;
@@ -50,6 +50,9 @@ export async function onRequestPost(context) {
     if (sentWhy === "ok") { log("sent"); return reply(200, { ok: true, result: "sent" }); }
   }
   const expires = await storeLink(env.DB, env, id, kind, link, nowMs);
+  // Fix round 1 item 8: the day-10 link retired the unsent day-3 link on the server (at most one pending link):
+  // its stored copy here can never be useful, so it goes too.
+  if (kind === "reminder10") await deleteLink(env.DB, id, "reminder3");
   log(sentWhy ? `stored_after_${sentWhy}` : "stored");
   return reply(200, { ok: true, result: "stored", expires_at: expires, ...(sentWhy ? { auto_send: sentWhy } : {}) });
 }

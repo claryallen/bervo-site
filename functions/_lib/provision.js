@@ -26,7 +26,24 @@ export const WINDOW_S = 300;
 export const NONCE_KEEP_S = 600;
 export const MAX_BYTES = 4096;
 export const LINK_TTL_MS = 14 * 86400000 - 3600000;   // the server's link lives 14 days from issue; stated an hour short
-export const STATES = ["queued", "building", "ready", "failed", "waiting_cap"];
+export const STATES = ["queued", "building", "ready", "failed", "waiting_cap", "stopped"];
+// Fix round 1 item 2: invite_to_profile.py's unattended defaults as fixed codes (tools/tenant/invite_to_profile.py
+// NOTE_CODES, the same set: the tests compare them). Shown on the admin page beside the build, before Send.
+export const NOTE_WORDS = {
+  mac_unknown: "The request predates the computer question: Mac uploads set OFF (ask whether they have a Mac).",
+  tz_defaulted: "No usable time zone on the form: set to America/New_York (they can change it on /welcome).",
+  plan_standard: "Plan Standard: built as a dedicated server for now (Standard is not built yet).",
+  plan_missing: "No usable plan on the request: none written.",
+  cohort_unsupported: "Cohort not written (an older provisioner).",
+  no_provider: "No email provider ticked: no mail source set up.",
+  provider_other: "\"Other\" email provider ticked: no mail source set up for it (what they wrote is on their server's setup answers).",
+  providers_multi: "Several email providers ticked: the sign-in email's provider is set up; they connect the others on /welcome.",
+  android: "Android: their texts come through the Bervo app for Android.",
+  iphone_no_mac: "iPhone without a Mac: their own texts can't come in (the invite email already says so).",
+  ipad_only: "iPad and/or phone only: setup on those devices is not tested yet.",
+  pronouns_default: "Pronouns are not on the form: set to \"they\".",
+};
+export const NOTE_CODES = Object.keys(NOTE_WORDS);
 // new_customer.sh's steps, plus the picker's own: profile (invite_to_profile.py), approval_check (the unattended
 // check refused), scan (the secret scan failed the log), timeout (the wall-clock limit), interrupted (the Mini
 // stopped mid-build). Kept in step with 0007_provisioning.sql and auto_provision.py (tests check both).
@@ -152,7 +169,7 @@ export async function provisionFor(db, ids) {
   const out = new Map();
   if (!ids.length) return out;
   try {
-    const { results } = await db.prepare(`SELECT request_id, state, step, queued_at, started_at, finished_at, retry_requested_at, updated_at ` +
+    const { results } = await db.prepare(`SELECT request_id, state, step, queued_at, started_at, finished_at, retry_requested_at, notes, updated_at ` +
       `FROM invite_provision WHERE request_id IN (${ids.map(() => "?").join(",")})`).bind(...ids).all();
     for (const r of results) out.set(r.request_id, r);
   } catch { /* no 0007 table yet */ }

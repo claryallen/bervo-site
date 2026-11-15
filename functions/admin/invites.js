@@ -17,7 +17,7 @@
 // server side (it is never put in this page). The paste field stays as the fallback for a hand-made link.
 import { checkAccess, escapeHtml, pruneOld, redirect, SLUG_RE, stripFormatChars, TRIM_SET } from "../_lib/invites.js";
 import { inviteBody, linkMatchesSlug, needsIphoneNoMacNote, MailError, reminderDue, reminderExpiryDate, sendingOff, sendTemplate, TEMPLATES } from "../_lib/mail.js";
-import { BUILD_STEPS, deleteLink, linksFor, provisionFor, readLink, sendLinkEmail, TEMPLATE_KIND } from "../_lib/provision.js";
+import { BUILD_STEPS, deleteLink, linksFor, NOTE_WORDS, provisionFor, readLink, sendLinkEmail, TEMPLATE_KIND } from "../_lib/provision.js";
 
 // The invite email (words: daily-dashboard docs/marketing/site/INVITE_FORM_COPY_V1.md §5, approved by Allen 11-10;
 // they live in functions/_lib/mail.js now, the one sender). CR-WELCOMEEMAIL.1: **Send invite email** sends it
@@ -133,6 +133,8 @@ function renderBuild(r, prov, links = {}, mailOff = null) {
     line = n >= 0 ? `building, step ${n + 1} of ${BUILD_STEPS.length} (${e(prov.step)})` : prov.step ? `building (${e(prov.step)})` : "building";
   } else if (prov.state === "failed") {
     line = `failed at ${e(prov.step || "an unknown step")}`;
+  } else if (prov.state === "stopped") {
+    line = `stopped before ${e(prov.step || "the next step")}: the request was withdrawn during the build. Nothing was torn down; approve it again to continue, or tear the server down (your go)`;
   } else {
     line = e(STATE_WORDS[prov.state] || prov.state);
   }
@@ -143,7 +145,11 @@ function renderBuild(r, prov, links = {}, mailOff = null) {
 ${mailOff ? `<p class="off">Sending is off (${e(mailOff)}); the link waits here until sending is on, or it expires.</p>`
     : `<form method="post" action="/admin/invites" class="send"><input type="hidden" name="id" value="${e(r.id)}">
 <button name="action" value="send_invite_stored" type="submit">Send invite email</button> to ${em(r.email)} with the delivered link</form>`}` : "";
-  return `<div class="build"><p>Server: <span class="bs bs-${e(prov ? prov.state : "none")}">${line}</span>${prov && prov.finished_at ? ` · ${fmt(prov.finished_at)}` : ""}</p>${retry}${send}</div>`;
+  let codes = [];
+  try { codes = prov && prov.notes ? JSON.parse(prov.notes) : []; } catch { codes = []; }
+  const notes = Array.isArray(codes) && codes.length ? `<p>Set up with these defaults (check before Send):</p><ul class="notes">${
+    codes.filter((c) => Object.hasOwn(NOTE_WORDS, c)).map((c) => `<li>${e(NOTE_WORDS[c])}</li>`).join("")}</ul>` : "";
+  return `<div class="build"><p>Server: <span class="bs bs-${e(prov ? prov.state : "none")}">${line}</span>${prov && prov.finished_at ? ` · ${fmt(prov.finished_at)}` : ""}</p>${notes}${retry}${send}</div>`;
 }
 
 function renderRow(r, mails = [], mailOff = null, flash = "", nowMs = Date.now(), prov = null, links = {}) {
@@ -194,7 +200,7 @@ ${slugField}
 </form>
 ${renderMail(mails)}
 ${flash ? `<p class="flash">${e(flash)}</p>` : ""}
-${r.status === "approved" || r.status === "invited" ? renderBuild(r, prov, links, mailOff) : ""}
+${r.status === "approved" || r.status === "invited" || prov ? renderBuild(r, prov, links, mailOff) : ""}
 ${r.status === "invited" ? renderReminder(r, mails, mailOff, nowMs, links) : ""}
 ${r.status === "approved" || r.status === "invited" ? `<div class="copy" data-first="${e(r.first_name)}" data-variant="${needsIphoneNoMacNote(r.phone, r.computers) ? "note" : "plain"}">
 <form method="post" action="/admin/invites" class="send">
@@ -247,7 +253,7 @@ dl{display:grid;grid-template-columns:10rem 1fr;gap:.1rem .75rem;margin:.5rem 0}
 textarea,input{width:100%;box-sizing:border-box;font:inherit}label{display:block;margin:.4rem 0}.buttons{margin-top:.4rem}
 .copy{margin-top:.6rem;border-top:1px dashed #ccc;padding-top:.5rem}
 .mail-log{margin:.4rem 0;padding-left:1.2rem}.ms{border-radius:4px;padding:0 .4em;background:#eee}.ms-delivered{background:#d1fae5}
-.ms-bounced,.ms-complained,.ms-failed{background:#fee2e2}.build{margin:.5rem 0}.bs{border-radius:4px;padding:0 .4em;background:#eee}.bs-ready{background:#d1fae5}.bs-failed{background:#fee2e2}.bs-waiting_cap{background:#fef3c7}.ready{margin:.3rem 0}.remind{background:#eff6ff;border-radius:6px;padding:.3rem .7rem;margin:.5rem 0}.flash{background:#fef3c7;border-radius:6px;padding:.3rem .6rem}.off{color:#7a4b00}</style></head><body>
+.ms-bounced,.ms-complained,.ms-failed{background:#fee2e2}.build{margin:.5rem 0}.bs{border-radius:4px;padding:0 .4em;background:#eee}.bs-ready{background:#d1fae5}.bs-failed{background:#fee2e2}.bs-waiting_cap{background:#fef3c7}.bs-stopped{background:#fee2e2}.ready{margin:.3rem 0}.remind{background:#eff6ff;border-radius:6px;padding:.3rem .7rem;margin:.5rem 0}.flash{background:#fef3c7;border-radius:6px;padding:.3rem .6rem}.off{color:#7a4b00}</style></head><body>
 <h1>Invite requests</h1><p>Signed in as ${em(auth.email)} · Show: ${nav}</p>
 ${results.length ? results.map((r) => renderRow(r, mails.get(r.id), mailOff, r.id === flashId ? flash : "", nowMs, provs.get(r.id) || null, links.get(r.id) || {})).join("\n") : "<p>None.</p>"}
 ${renderServerMail(await serverMails(env.DB))}

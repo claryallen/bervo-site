@@ -112,9 +112,9 @@ async function makeJwt(nowMs) {
   return `${h}.${p}.${b64u(sig)}`;
 }
 const certsFetch = async () => Response.json({ keys: [(await keys()).jwk] });
-async function adminGet(db, { env, nowMs = NOW } = {}) {
+async function adminGet(db, { env, nowMs = NOW, query = "" } = {}) {
   _resetAccessKeyCache();
-  const res = await admin.onRequestGet({ request: new Request(`${ORIGIN}/admin/invites`, { headers: { "Cf-Access-Jwt-Assertion": await makeJwt(nowMs) } }),
+  const res = await admin.onRequestGet({ request: new Request(`${ORIGIN}/admin/invites${query}`, { headers: { "Cf-Access-Jwt-Assertion": await makeJwt(nowMs) } }),
     env: env || ENV(db), fetchImpl: certsFetch, nowMs });
   return res.text();
 }
@@ -340,4 +340,59 @@ test("G1 no value next to BERVO_PROVISION_SECRET or BERVO_LINK_KEY in any tracke
       if (/(BERVO_PROVISION_SECRET|BERVO_LINK_KEY)\s*[=:]\s*["']?[A-Za-z0-9_-]{8,}/.test(ln)) assert.fail(`${f}: a value next to a provision secret`);
     }
   }
+});
+
+// ---------- fix round 1 ----------
+import * as mail from "../../_lib/mail.js";
+
+test("F1 Not now mid-build: stopped before <step> shows on the page; not claimable while not approved; Approve again continues", async () => {
+  const db = makeD1(); const id = seed(db);
+  await state(db, { action: "claim", request_id: id, run_id: "run-aaaaaaaa" });
+  await state(db, { action: "step", request_id: id, run_id: "run-aaaaaaaa", step: "phase5" });
+  db.raw.prepare("UPDATE invite_requests SET status = 'not_now' WHERE id = ?").run(id);   // Allen presses Not now
+  assert.equal((await state(db, { action: "stopped", request_id: id, run_id: "run-bbbbbbbb", step: "phase5" })).status, 409, "only the claiming run");
+  assert.equal((await state(db, { action: "stopped", request_id: id, run_id: "run-aaaaaaaa", step: "phase5" })).status, 200);
+  assert.deepEqual([provRow(db, id).state, provRow(db, id).step], ["stopped", "phase5"]);
+  const page = await adminGet(db, { query: "?show=not_now" });
+  assert.ok(page.includes("stopped before phase5") && page.includes("Nothing was torn down"), "shown on a not-now row too");
+  assert.equal((await state(db, { action: "claim", request_id: id, run_id: "run-cccccccc" })).status, 409, "not approved: not claimable");
+  db.raw.prepare("UPDATE invite_requests SET status = 'approved' WHERE id = ?").run(id);
+  assert.equal((await state(db, { action: "claim", request_id: id, run_id: "run-cccccccc" })).body.result, "claimed");
+});
+
+test("F2 notes: only the fixed codes are stored (never text) and the admin page shows their words before Send", async () => {
+  const db = makeD1(); const id = seed(db);
+  await state(db, { action: "claim", request_id: id, run_id: "run-aaaaaaaa" });
+  for (const bad of [["tz_defaulted", "Yahoo, AOL"], "tz_defaulted", Array(13).fill("android"), [{ code: "android" }]]) {
+    assert.equal((await state(db, { action: "notes", request_id: id, run_id: "run-aaaaaaaa", codes: bad })).body.result, "bad_codes");
+  }
+  assert.equal((await state(db, { action: "notes", request_id: id, run_id: "run-bbbbbbbb", codes: ["android"] })).status, 409);
+  assert.equal((await state(db, { action: "notes", request_id: id, run_id: "run-aaaaaaaa", codes: ["tz_defaulted", "pronouns_default", "tz_defaulted"] })).status, 200);
+  assert.equal(provRow(db, id).notes, '["tz_defaulted","pronouns_default"]');
+  const page = await adminGet(db);
+  assert.ok(page.includes("set to America/New_York") && page.includes("set to &quot;they&quot;") && page.includes("check before Send"));
+});
+
+test("F3 one reminder clock: mail.reminderDue passes every shared case (reminder_cases.json; the Mini runs the same file)", () => {
+  const t = JSON.parse(readFileSync(path.join(ROOT, "functions/_dev/tests/reminder_cases.json"), "utf8"));
+  const base = Date.parse(t.base);
+  for (const c of t.cases) {
+    const mails = c.mails.map((m) => ({ template: m.template, status: m.status, created_at: new Date(base + m.at_days * 86400000).toISOString() }));
+    assert.equal(mail.reminderDue(c.request, mails, base + c.age * 86400000), c.due, c.name);
+  }
+});
+
+test("F4 the day-10 link replaces a stored, never-sent day-3 link (at most one pending)", async () => {
+  const db = makeD1(); const id = seed(db); inviteSent(db, id, 3.5);
+  await link(db, { request_id: id, kind: "reminder3", link: LINK });
+  await link(db, { request_id: id, kind: "reminder10", link: LINK2 });
+  assert.deepEqual(linkRows(db).map((r) => r.kind), ["reminder10"]);
+});
+
+test("F5 the note codes are the same set as the Mini's invite_to_profile.py NOTE_CODES (when the sibling checkout is there)", () => {
+  const p = path.join(ROOT, "..", "beta-3.21-autoprovision", "tools", "tenant", "invite_to_profile.py");
+  let src;
+  try { src = readFileSync(p, "utf8"); } catch { return; }
+  const py = [...src.match(/NOTE_CODES = \(([^)]*)\)/s)[1].matchAll(/"([a-z_]+)"/g)].map((m) => m[1]);
+  assert.deepEqual(py, prov.NOTE_CODES);
 });

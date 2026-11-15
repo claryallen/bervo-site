@@ -283,7 +283,10 @@ export async function applyEvent(db, rec, nowMs = Date.now()) {
 export const REMINDER_DAYS = { reminder_day3: 3, reminder_day10: 10 };
 
 // Which reminder is due for one invite, or null. mails = that request's invite_mail rows.
-// Due when: the request is still 'invited' (not claimed, expired or withdrawn), an invite email was accepted,
+// The clock (CR-AUTOPROVISION.1 fix round 1 item 4, one clock for bervo.ai and the Mini's picker): the newest accepted
+// invite email's time, else the request's invited_at (an invite sent by Copy has no invite_mail row; Mark invited
+// stamped invited_at). tools/tenant/auto_provision.py reminder_due() is the same rule (the tests share the cases).
+// Due when: the request is still 'invited' (not claimed, expired or withdrawn), an invite was sent,
 // no email to it ever bounced or drew a complaint, the day has come, that reminder was never sent, and the
 // 14-day link has not run out. No automatic resend of anything that failed.
 export function reminderDue(request, mails, nowMs) {
@@ -291,8 +294,8 @@ export function reminderDue(request, mails, nowMs) {
   const list = mails || [];
   if (list.some((m) => m.status === "bounced" || m.status === "complained")) return null;
   const invites = list.filter((m) => m.template === "invite" && m.status !== "failed");
-  if (!invites.length) return null;
-  const sentMs = Math.max(...invites.map((m) => Date.parse(m.created_at)));
+  const sentMs = invites.length ? Math.max(...invites.map((m) => Date.parse(m.created_at))) : Date.parse(request.invited_at || "");
+  if (!Number.isFinite(sentMs)) return null;
   const age = (nowMs - sentMs) / 86400000;
   if (age >= 14) return null;
   for (const t of ["reminder_day10", "reminder_day3"]) {

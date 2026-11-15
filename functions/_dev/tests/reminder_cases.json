@@ -1,0 +1,21 @@
+{
+  "_comment": "One reminder clock (CR-AUTOPROVISION.1 fix round 1 item 4). Each case: the request, its invite_mail rows, the age in days of 'now' after BASE, and the reminder due. Run by bervo-site provision.test.js (mail.reminderDue) and daily-dashboard tools/tenant/test_auto_provision.py (auto_provision.reminder_due). BASE = 2026-11-12T15:00:00.000Z.",
+  "base": "2026-11-12T15:00:00.000Z",
+  "cases": [
+    {"name": "emailed invite, day 2.9", "request": {"status": "invited", "invited_at": "2026-11-12T15:00:00.000Z"}, "mails": [{"template": "invite", "status": "delivered", "at_days": 0}], "age": 2.9, "due": null},
+    {"name": "emailed invite, day 3", "request": {"status": "invited", "invited_at": "2026-11-12T15:00:00.000Z"}, "mails": [{"template": "invite", "status": "sent", "at_days": 0}], "age": 3, "due": "reminder_day3"},
+    {"name": "day 3 sent, day 5", "request": {"status": "invited", "invited_at": "2026-11-12T15:00:00.000Z"}, "mails": [{"template": "invite", "status": "sent", "at_days": 0}, {"template": "reminder_day3", "status": "sent", "at_days": 3}], "age": 5, "due": null},
+    {"name": "day 3 sent, day 10", "request": {"status": "invited", "invited_at": "2026-11-12T15:00:00.000Z"}, "mails": [{"template": "invite", "status": "sent", "at_days": 0}, {"template": "reminder_day3", "status": "sent", "at_days": 3}], "age": 10, "due": "reminder_day10"},
+    {"name": "both sent, day 11", "request": {"status": "invited", "invited_at": "2026-11-12T15:00:00.000Z"}, "mails": [{"template": "invite", "status": "sent", "at_days": 0}, {"template": "reminder_day3", "status": "sent", "at_days": 3}, {"template": "reminder_day10", "status": "sent", "at_days": 10}], "age": 11, "due": null},
+    {"name": "day 14: the link ran out", "request": {"status": "invited", "invited_at": "2026-11-12T15:00:00.000Z"}, "mails": [{"template": "invite", "status": "sent", "at_days": 0}], "age": 14, "due": null},
+    {"name": "claimed", "request": {"status": "claimed", "invited_at": null}, "mails": [{"template": "invite", "status": "sent", "at_days": 0}], "age": 3, "due": null},
+    {"name": "bounced", "request": {"status": "invited", "invited_at": "2026-11-12T15:00:00.000Z"}, "mails": [{"template": "invite", "status": "bounced", "at_days": 0}], "age": 3, "due": null},
+    {"name": "complaint on a reminder", "request": {"status": "invited", "invited_at": "2026-11-12T15:00:00.000Z"}, "mails": [{"template": "invite", "status": "sent", "at_days": 0}, {"template": "reminder_day3", "status": "complained", "at_days": 3}], "age": 10, "due": null},
+    {"name": "Copy-sent invite (no mail row), day 3.5: invited_at is the clock", "request": {"status": "invited", "invited_at": "2026-11-12T15:00:00.000Z"}, "mails": [], "age": 3.5, "due": "reminder_day3"},
+    {"name": "Copy-sent invite, day 1", "request": {"status": "invited", "invited_at": "2026-11-12T15:00:00.000Z"}, "mails": [], "age": 1, "due": null},
+    {"name": "failed Send, then Copy + Mark invited a day later: invited_at", "request": {"status": "invited", "invited_at": "2026-11-13T15:00:00.000Z"}, "mails": [{"template": "invite", "status": "failed", "at_days": 0}], "age": 3.5, "due": null},
+    {"name": "failed Send, then Copy + Mark invited a day later, day 4.1", "request": {"status": "invited", "invited_at": "2026-11-13T15:00:00.000Z"}, "mails": [{"template": "invite", "status": "failed", "at_days": 0}], "age": 4.1, "due": "reminder_day3"},
+    {"name": "no invite and no invited_at", "request": {"status": "invited", "invited_at": null}, "mails": [{"template": "invite", "status": "failed", "at_days": 0}], "age": 3, "due": null},
+    {"name": "re-sent invite moves the clock", "request": {"status": "invited", "invited_at": "2026-11-12T15:00:00.000Z"}, "mails": [{"template": "invite", "status": "sent", "at_days": 0}, {"template": "invite", "status": "sent", "at_days": 2}], "age": 4, "due": null}
+  ]
+}
