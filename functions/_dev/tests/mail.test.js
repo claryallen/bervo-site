@@ -157,7 +157,7 @@ test("M2 Allen's approved words (NEXT_USER_WORDS_V1 §A, 11-11), word for word; 
   assert.equal(inv, `Hi Pat,\n\nThanks for requesting an invite to Bervo.\n\nHere's your personal setup link:\n${LINK}\n\n` +
     "You'll need about 20 minutes at your desktop computer, your phone, and the sign-in(s) for the email account(s) you want to connect to Bervo.\n\n" +
     "This link stays open for 14 days. Stopped partway? Sign in again with your email and password and you'll pick up " +
-    "where you left off.\n\nBervo is free until January 5, 2027.\n\nAny questions, just reply to this email.\n\nThe Bervo Team");
+    "where you left off.\n\nBervo is free until January 5, 2027. We'll confirm your billing several days prior to January 5, cancel anytime.\n\nAny questions, just reply to this email.\n\nThe Bervo Team");
   const r3 = mail.render("reminder_day3", { first_name: "Pat", link: LINK, expiry_date: "November 25" });
   assert.equal(r3.subject, "Your Bervo setup link");
   assert.equal(r3.text, `Hi Pat,\n\nJust a reminder that your Bervo setup is waiting. Here's a fresh link (the one in our earlier email no longer works):\n${LINK}\n\n` +
@@ -187,7 +187,9 @@ test("BL1 CR-BILLINGLINE.1: the billing line is its own paragraph, once, in invi
   const ld = mail.render("loaded", { first_name: "Pat", start_date: "October 12", dashboard_link: "https://zz-test.bervo.ai/" }).text;
   assert.equal(count(inv), 1);
   assert.equal(count(ld), 1);
-  for (const t of [inv, ld]) assert.ok(t.split("\n\n").includes(LINE), "its own paragraph");
+  const INV_PARA = LINE + " We'll confirm your billing several days prior to January 5, cancel anytime.";  // Allen 11-15, invite only
+  assert.ok(inv.split("\n\n").includes(INV_PARA), "invite: its own paragraph, with the billing-confirmation sentence");
+  assert.ok(ld.split("\n\n").includes(LINE), "loaded: its own paragraph");
   assert.ok(inv.indexOf(LINE) > inv.indexOf("pick up where you left off.") && inv.indexOf(LINE) < inv.indexOf("Any questions"), "invite: after the setup paragraph, before 'Any questions'");
   assert.ok(ld.indexOf(LINE) > ld.indexOf("Start with Today") && ld.indexOf(LINE) < ld.indexOf("If anything looks wrong"), "loaded: after the Today paragraph, before the feedback line");
   for (const t of ["reminder_day3", "reminder_day10"]) {
