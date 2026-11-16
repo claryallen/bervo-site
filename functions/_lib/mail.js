@@ -28,7 +28,8 @@ export const DEFAULT_FROM = "Bervo <hello@bervo.ai>";
 //   loaded         = §A3 (the "{billing line, Allen 5.2}" placeholder is now filled: CR-BILLINGLINE.1, Allen 11-12).
 // CR-BILLINGLINE.1 (Allen 11-12): the line "Bervo is free until January 5, 2027." is its own paragraph in invite
 // (after the setup paragraph, before "Any questions") and loaded (after the "Start with Today" paragraph). Not in the reminders.
-// invite rewritten by Allen 2026-11-15 (his words, verbatim; signed "The Bervo Team"; the greeting kept).
+// invite rewritten by Allen 2026-11-15 (his words, verbatim; signed "The Bervo Team"; the greeting kept). Same day,
+// "same change": the reminders and loaded are signed "The Bervo Team" too, and day 3 says "our earlier email".
 // render() still refuses any text carrying "[GTM]", so a future placeholder can never reach a customer.
 export const TEMPLATES = {
   invite: {
@@ -61,12 +62,12 @@ export const TEMPLATES = {
     body: [
       "Hi {first_name},",
       "",
-      "Just a reminder that your Bervo setup is waiting. Here's a fresh link (the one in my earlier email no longer works):",
+      "Just a reminder that your Bervo setup is waiting. Here's a fresh link (the one in our earlier email no longer works):",
       "{link}",
       "",
       "It stays open until {expiry_date}. If now isn't a good time, reply and I'll send a new one when you're ready.",
       "",
-      "Allen",
+      "The Bervo Team",
     ].join("\n"),
   },
   reminder_day10: {
@@ -80,7 +81,7 @@ export const TEMPLATES = {
       "",
       "It stays open until {expiry_date}. If you'd rather start later, reply and I'll send one then.",
       "",
-      "Allen",
+      "The Bervo Team",
     ].join("\n"),
   },
   loaded: {
@@ -99,7 +100,7 @@ export const TEMPLATES = {
       "",
       "If anything looks wrong, use Feedback at the top of the dashboard, or text Bervo.",
       "",
-      "Allen",
+      "The Bervo Team",
     ].join("\n"),
   },
 };
