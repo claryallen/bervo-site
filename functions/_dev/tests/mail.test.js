@@ -161,11 +161,11 @@ test("M2 Allen's approved words (NEXT_USER_WORDS_V1 §A, 11-11), word for word; 
   const r3 = mail.render("reminder_day3", { first_name: "Pat", link: LINK, expiry_date: "November 25" });
   assert.equal(r3.subject, "Your Bervo setup link");
   assert.equal(r3.text, `Hi Pat,\n\nJust a reminder that your Bervo setup is waiting. Here's a fresh link (the one in our earlier email no longer works):\n${LINK}\n\n` +
-    "It stays open until November 25. If now isn't a good time, reply and I'll send a new one when you're ready.\n\nThe Bervo Team");
+    "It stays open until November 25. If now isn't a good time, reply and we'll send a new one when you're ready.\n\nThe Bervo Team");
   const r10 = mail.render("reminder_day10", { first_name: "Pat", link: LINK, expiry_date: "December 2" });
   assert.equal(r10.subject, "Still want to set up Bervo?");
   assert.equal(r10.text, `Hi Pat,\n\nHere's a new setup link, in case the earlier ones got buried:\n${LINK}\n\n` +
-    "It stays open until December 2. If you'd rather start later, reply and I'll send one then.\n\nThe Bervo Team");
+    "It stays open until December 2. If you'd rather start later, reply and we'll send one then.\n\nThe Bervo Team");
   const ld = mail.render("loaded", { first_name: "Pat", start_date: "October 12", dashboard_link: "https://zz-test.bervo.ai/" });
   assert.equal(ld.subject, "Bervo is ready");
   assert.equal(ld.text, "Hi Pat,\n\nBervo has read your email back to October 12, and your dashboard is ready:\nhttps://zz-test.bervo.ai/\n\n" +
