@@ -170,7 +170,7 @@ test("M2 Allen's approved words (NEXT_USER_WORDS_V1 §A, 11-11), word for word; 
   assert.equal(ld.subject, "Bervo is ready");
   assert.equal(ld.text, "Hi Pat,\n\nBervo has read your email back to October 12, and your dashboard is ready:\nhttps://zz-test.bervo.ai/\n\n" +
     "Start with Today. It shows your briefing, your schedule and anything waiting on you. Your first morning brief will be on your " +
-    "dashboard tomorrow morning.\n\nBervo is free until January 5, 2027.\n\nIf anything looks wrong, use Feedback at the top of the dashboard, or text Bervo.\n\nThe Bervo Team");
+    "dashboard tomorrow morning.\n\nBervo is free until January 5, 2027. We'll confirm your billing several days prior to January 5, cancel anytime.\n\nIf anything looks wrong, use Feedback at the top of the dashboard, or text Bervo.\n\nThe Bervo Team");
   for (const t of Object.values(mail.TEMPLATES)) assert.ok(!(t.subject + t.body).includes("[GTM"));
   assert.throws(() => mail.render("loaded", { first_name: "Pat", start_date: "October 12", dashboard_link: "https://zz-test.bervo.ai/x" }), { code: "bad_field:dashboard_link" });
   assert.throws(() => mail.render("loaded", { first_name: "Pat", start_date: "Oct\n12", dashboard_link: "https://zz-test.bervo.ai/" }), { code: "bad_field:start_date" });
@@ -187,9 +187,9 @@ test("BL1 CR-BILLINGLINE.1: the billing line is its own paragraph, once, in invi
   const ld = mail.render("loaded", { first_name: "Pat", start_date: "October 12", dashboard_link: "https://zz-test.bervo.ai/" }).text;
   assert.equal(count(inv), 1);
   assert.equal(count(ld), 1);
-  const INV_PARA = LINE + " We'll confirm your billing several days prior to January 5, cancel anytime.";  // Allen 11-15, invite only
+  const INV_PARA = LINE + " We'll confirm your billing several days prior to January 5, cancel anytime.";  // Allen 11-15, invite and loaded
   assert.ok(inv.split("\n\n").includes(INV_PARA), "invite: its own paragraph, with the billing-confirmation sentence");
-  assert.ok(ld.split("\n\n").includes(LINE), "loaded: its own paragraph");
+  assert.ok(ld.split("\n\n").includes(INV_PARA), "loaded: the same paragraph");
   assert.ok(inv.indexOf(LINE) > inv.indexOf("pick up where you left off.") && inv.indexOf(LINE) < inv.indexOf("Any questions"), "invite: after the setup paragraph, before 'Any questions'");
   assert.ok(ld.indexOf(LINE) > ld.indexOf("Start with Today") && ld.indexOf(LINE) < ld.indexOf("If anything looks wrong"), "loaded: after the Today paragraph, before the feedback line");
   for (const t of ["reminder_day3", "reminder_day10"]) {

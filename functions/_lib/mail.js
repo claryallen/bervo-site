@@ -30,7 +30,7 @@ export const DEFAULT_FROM = "Bervo <hello@bervo.ai>";
 // (after the setup paragraph, before "Any questions") and loaded (after the "Start with Today" paragraph). Not in the reminders.
 // invite rewritten by Allen 2026-11-15 (his words, verbatim; signed "The Bervo Team"; the greeting kept). Same day,
 // "same change": the reminders and loaded are signed "The Bervo Team" too, and day 3 says "our earlier email".
-// Same day: the invite's billing paragraph adds "We'll confirm your billing several days prior to January 5, cancel anytime."
+// Same day: the invite's and loaded's billing paragraph adds "We'll confirm your billing several days prior to January 5, cancel anytime."
 // render() still refuses any text carrying "[GTM]", so a future placeholder can never reach a customer.
 export const TEMPLATES = {
   invite: {
@@ -97,7 +97,7 @@ export const TEMPLATES = {
       "Start with Today. It shows your briefing, your schedule and anything waiting on you. Your first morning brief " +
         "will be on your dashboard tomorrow morning.",
       "",
-      "Bervo is free until January 5, 2027.",
+      "Bervo is free until January 5, 2027. We'll confirm your billing several days prior to January 5, cancel anytime.",
       "",
       "If anything looks wrong, use Feedback at the top of the dashboard, or text Bervo.",
       "",
