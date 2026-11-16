@@ -28,6 +28,7 @@ export const DEFAULT_FROM = "Bervo <hello@bervo.ai>";
 //   loaded         = §A3 (the "{billing line, Allen 5.2}" placeholder is now filled: CR-BILLINGLINE.1, Allen 11-12).
 // CR-BILLINGLINE.1 (Allen 11-12): the line "Bervo is free until January 5, 2027." is its own paragraph in invite
 // (after the setup paragraph, before "Any questions") and loaded (after the "Start with Today" paragraph). Not in the reminders.
+// invite rewritten by Allen 2026-11-15 (his words, verbatim; signed "The Bervo Team"; the greeting kept).
 // render() still refuses any text carrying "[GTM]", so a future placeholder can never reach a customer.
 export const TEMPLATES = {
   invite: {
@@ -36,22 +37,22 @@ export const TEMPLATES = {
     body: [
       "Hi {first_name},",
       "",
-      "Thanks for requesting an invite to Bervo. I'm glad to have you.",
+      "Thanks for requesting an invite to Bervo.",
       "",
       "Here's your personal setup link:",
       "{link}",
       "",
-      "You'll need about 20 minutes, your phone, and the sign-in for the email account you want Bervo to read.",
+      "You'll need about 20 minutes at your desktop computer, your phone, and the sign-in(s) for the email " +
+        "account(s) you want to connect to Bervo.",
       "",
-      "It works once and stays open for 14 days. Setup takes you through connecting your email, choosing how much " +
-        "history to load, adding your AI API key and texting the Bervo line. Stopped partway? Sign in with your email " +
-        "and password and you'll pick up where you left off.",
+      "This link stays open for 14 days. Stopped partway? Sign in again with your email and password and you'll " +
+        "pick up where you left off.",
       "",
       "Bervo is free until January 5, 2027.",
       "",
       "Any questions, just reply to this email.",
       "",
-      "Allen",
+      "The Bervo Team",
     ].join("\n"),
   },
   reminder_day3: {

@@ -398,10 +398,10 @@ test("'not now' rows are deleted 90 days after the decision; others kept", async
 
 test("the invite email is the approved copy; the owner link reaches the server only with Send (CR-WELCOMEEMAIL.1)", async () => {
   assert.equal(admin.INVITE_EMAIL_SUBJECT, "Your Bervo invite");
-  assert.ok(admin.INVITE_EMAIL_TEMPLATE.startsWith("Hi {first_name},\n\nThanks for requesting an invite to Bervo. I'm glad to have you."));
+  assert.ok(admin.INVITE_EMAIL_TEMPLATE.startsWith("Hi {first_name},\n\nThanks for requesting an invite to Bervo.\n\nHere's"));
   assert.match(admin.INVITE_EMAIL_TEMPLATE, /Here's your personal setup link:\n\{link\}\n/);
-  assert.match(admin.INVITE_EMAIL_TEMPLATE, /It works once and stays open for 14 days\./);
-  assert.ok(admin.INVITE_EMAIL_TEMPLATE.endsWith("Any questions, just reply to this email.\n\nAllen"));
+  assert.match(admin.INVITE_EMAIL_TEMPLATE, /This link stays open for 14 days\./);
+  assert.ok(admin.INVITE_EMAIL_TEMPLATE.endsWith("Any questions, just reply to this email.\n\nThe Bervo Team"));
   assert.ok(!/\[GTM/.test(admin.INVITE_EMAIL_TEMPLATE));
   const src = readFileSync(path.join(ROOT, "functions/admin/invites.js"), "utf8");
   // CR-WELCOMEEMAIL.1 changed this on purpose: the link box now sits in the Send form (name="link"), so Send posts it

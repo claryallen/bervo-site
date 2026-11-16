@@ -133,7 +133,7 @@ async function hookPost(db, rec, { auth = `postmark:${HOOK_SECRET}`, env, logs =
 test("M1 render: the invite is Allen's approved §5 text with the name and link filled in; bad fields refused", () => {
   const { subject, text } = mail.render("invite", { first_name: "Pat", link: LINK });
   assert.equal(subject, "Your Bervo invite");
-  assert.ok(text.startsWith("Hi Pat,\n") && text.includes("\n" + LINK + "\n") && text.endsWith("\nAllen"));
+  assert.ok(text.startsWith("Hi Pat,\n") && text.includes("\n" + LINK + "\n") && text.endsWith("\nThe Bervo Team"));
   assert.ok(!/\{[a-z_]+\}/.test(text));
   assert.equal(admin.INVITE_EMAIL_TEMPLATE, mail.TEMPLATES.invite.body, "the Copy fallback uses the same words");
   const bad = [
@@ -153,11 +153,11 @@ test("M1 render: the invite is Allen's approved §5 text with the name and link 
 
 test("M2 Allen's approved words (NEXT_USER_WORDS_V1 §A, 11-11), word for word; no placeholder left; [GTM] still refused", () => {
   const inv = mail.render("invite", { first_name: "Pat", link: LINK }).text;
-  assert.equal(inv, `Hi Pat,\n\nThanks for requesting an invite to Bervo. I'm glad to have you.\n\nHere's your personal setup link:\n${LINK}\n\n` +
-    "You'll need about 20 minutes, your phone, and the sign-in for the email account you want Bervo to read.\n\n" +
-    "It works once and stays open for 14 days. Setup takes you through connecting your email, choosing how much history to load, " +
-    "adding your AI API key and texting the Bervo line. Stopped partway? Sign in with your email and password and you'll pick up " +
-    "where you left off.\n\nBervo is free until January 5, 2027.\n\nAny questions, just reply to this email.\n\nAllen");
+  // invite: Allen's rewrite 2026-11-15, word for word.
+  assert.equal(inv, `Hi Pat,\n\nThanks for requesting an invite to Bervo.\n\nHere's your personal setup link:\n${LINK}\n\n` +
+    "You'll need about 20 minutes at your desktop computer, your phone, and the sign-in(s) for the email account(s) you want to connect to Bervo.\n\n" +
+    "This link stays open for 14 days. Stopped partway? Sign in again with your email and password and you'll pick up " +
+    "where you left off.\n\nBervo is free until January 5, 2027.\n\nAny questions, just reply to this email.\n\nThe Bervo Team");
   const r3 = mail.render("reminder_day3", { first_name: "Pat", link: LINK, expiry_date: "November 25" });
   assert.equal(r3.subject, "Your Bervo setup link");
   assert.equal(r3.text, `Hi Pat,\n\nJust a reminder that your Bervo setup is waiting. Here's a fresh link (the one in my earlier email no longer works):\n${LINK}\n\n` +
