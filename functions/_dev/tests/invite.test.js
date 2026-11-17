@@ -728,7 +728,7 @@ test("plan: required, allowlisted, stored and shown; Standard listed first", asy
   assert.ok(html.indexOf('value="standard"') < html.indexOf('value="private"'), "Standard first");
   assert.ok(html.indexOf('name="phone" value="android"') < html.indexOf("<legend>Which plan would you like?</legend>"), "after the phone question");
   for (const t of ['<label class="plan"><input type="radio" name="plan" value="standard" required><span><b>Standard $49/mo</b> <span class="help">Your own walled-off account on a shared server. Add texts, voice, assistants anytime. Upgrade to Dedicated from February 2027. AI key costs additional. Bervo is free until January 5, 2027. Cancel anytime.</span></span></label>',
-    '<label class="plan"><input type="radio" name="plan" value="private"><span><b>Dedicated $99/mo</b> <span class="help">Your own virtual private server. Includes texts, voice, and your first assistant. Downgrade to Standard from February 2027. AI key costs additional. Bervo is free until January 5, 2027. Cancel anytime.</span></span></label>'])
+    '<label class="plan"><input type="radio" name="plan" value="private"><span><b>Dedicated $99/mo</b> <span class="help">Your own dedicated virtual private server. Includes texts, voice, and your first assistant. Downgrade to Standard from February 2027. AI key costs additional. Bervo is free until January 5, 2027. Cancel anytime.</span></span></label>'])
     assert.ok(html.includes(t), "radio left of the bold name and grey line: " + t.slice(0, 60));
 });
 
