@@ -520,7 +520,7 @@ test("bidi, zero-width and other format characters are stripped from every text 
 test("non-site files live under functions/ (Pages does not serve that directory); nothing extra at the root", () => {
   const root = readdirSync(ROOT).filter((n) => !n.startsWith(".git"));
   const allowed = new Set(["404.html", "_headers", "_redirects", "download", "functions", "index.html", "invite-thanks.html",
-    "invite.html", "invite.js", "invite-thanks.js", "privacy.html", "terms.html", ".well-known"]);
+    "invite.html", "invite.js", "invite-thanks.js", "privacy.html", "site.js", "terms.html", ".well-known"]);
   assert.deepEqual(root.filter((n) => !allowed.has(n)), [], "unexpected files at the served root");
   for (const f of ["functions/_lib/invites.js", "functions/_dev/tests/invite.test.js"]) {
     const src = readFileSync(path.join(ROOT, f), "utf8");
@@ -728,7 +728,7 @@ test("plan: required, allowlisted, stored and shown; Standard listed first", asy
   assert.ok(html.indexOf('value="standard"') < html.indexOf('value="private"'), "Standard first");
   assert.ok(html.indexOf('name="phone" value="android"') < html.indexOf("<legend>Which plan would you like?</legend>"), "after the phone question");
   for (const t of ['<label class="plan"><input type="radio" name="plan" value="standard" required><span><b>Standard $49/mo</b> <span class="help">Your own walled-off account on a shared server. Add texts, voice, assistants anytime. Upgrade to Dedicated anytime. AI key costs additional. Bervo is free until January 5, 2027. Cancel anytime.</span></span></label>',
-    '<label class="plan"><input type="radio" name="plan" value="private"><span><b>Dedicated $99/mo</b> <span class="help">Your own dedicated virtual private server. Includes texts, voice, and your first assistant. Downgrade to Standard anytime. AI key costs additional. Bervo is free until January 5, 2027. Cancel anytime.</span></span></label>'])
+    '<label class="plan"><input type="radio" name="plan" value="private"><span><b>Dedicated $99/mo</b> <span class="help">Your own dedicated private server. Includes texts, voice, and your first assistant. Downgrade to Standard anytime. AI key costs additional. Bervo is free until January 5, 2027. Cancel anytime.</span></span></label>'])
     assert.ok(html.includes(t), "radio left of the bold name and grey line: " + t.slice(0, 60));
 });
 
