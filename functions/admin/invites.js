@@ -16,6 +16,7 @@
 // continues from the failed step), and "link ready (expires <date>)" with Send buttons that send the delivered link
 // server side (it is never put in this page). The paste field stays as the fallback for a hand-made link.
 import { checkAccess, escapeHtml, pruneOld, redirect, SLUG_RE, stripFormatChars, TRIM_SET } from "../_lib/invites.js";
+import { friendlyFromDirect, friendlyLink, GO_DEMO_HOSTS, GO_LABEL_RE, GO_PAGES, GO_RESERVED } from "../_lib/golink.js";
 import { inviteBody, linkMatchesSlug, needsIphoneNoMacNote, MailError, reminderDue, reminderExpiryDate, sendingOff, sendTemplate, TEMPLATES } from "../_lib/mail.js";
 import { BUILD_STEPS, deleteLink, linksFor, NOTE_WORDS, provisionFor, readLink, sendLinkEmail, TEMPLATE_KIND } from "../_lib/provision.js";
 
@@ -216,6 +217,17 @@ ${mailOff ? `<p class="off">Sending is off (${e(mailOff)}). Copy the email below
 </article>`;
 }
 
+// CR-LINKPREVIEW.1: the Copy box turns the pasted owner link into the same bervo.ai/go link the Send button's email
+// carries (golink.js, embedded here as source so the browser runs the one implementation).
+export const COPY_LINK_SCRIPT = [
+  `const GO_LABEL_RE = ${GO_LABEL_RE.toString()};`,
+  `const GO_RESERVED = ${JSON.stringify(GO_RESERVED)};`,
+  `const GO_PAGES = ${JSON.stringify(GO_PAGES)};`,
+  `const GO_DEMO_HOSTS = ${JSON.stringify(GO_DEMO_HOSTS)};`,
+  friendlyLink.toString(),
+  friendlyFromDirect.toString(),
+].join("\n").replace(/<\//g, "<\\/");
+
 const FILTERS = { open: ["new", "approved", "invited"], new: ["new"], approved: ["approved"], invited: ["invited"],
   not_now: ["not_now"], claimed: ["claimed"], expired: ["expired"], all: null };
 
@@ -259,9 +271,10 @@ ${results.length ? results.map((r) => renderRow(r, mails.get(r.id), mailOff, r.i
 ${renderServerMail(await serverMails(env.DB))}
 <script nonce="${nonce}">
 const TEMPLATES = { plain: ${JSON.stringify(INVITE_EMAIL_TEMPLATE).replace(/</g, "\\u003c")}, note: ${JSON.stringify(inviteBody("iphone", '["none"]')).replace(/</g, "\\u003c")} };
+${COPY_LINK_SCRIPT}
 for (const box of document.querySelectorAll(".copy")) {
   const link = box.querySelector(".link"), mail = box.querySelector(".mail"), done = box.querySelector(".copied");
-  const fill = () => { mail.value = TEMPLATES[box.dataset.variant || "plain"].split("{first_name}").join(box.dataset.first).split("{link}").join(link.value.trim() || "[paste the owner link above]"); };
+  const fill = () => { mail.value = TEMPLATES[box.dataset.variant || "plain"].split("{first_name}").join(box.dataset.first).split("{link}").join(link.value.trim() ? friendlyFromDirect(link.value.trim()) : "[paste the owner link above]"); };
   link.addEventListener("input", fill); fill();
   box.querySelector(".copybtn").addEventListener("click", async () => {
     try { await navigator.clipboard.writeText(mail.value); done.textContent = "Copied"; }

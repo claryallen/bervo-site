@@ -16,6 +16,8 @@
 // (no pixel, no rewritten links). Logged: ONE line per send with the template, a salted hash of the address,
 // Postmark's MessageID and the result. Never the address, the link or the body (tests prove it).
 
+import { friendlyFromDirect } from "./golink.js";
+
 export const POSTMARK_URL = "https://api.postmarkapp.com/email";
 export const MESSAGE_STREAM = "outbound";
 export const DEFAULT_FROM = "Bervo <hello@bervo.ai>";
@@ -237,12 +239,18 @@ function fieldOk(name, v) {
   return false;
 }
 
+export const LINK_FIELDS = ["link", "dashboard_link", "texts_link"];
+
 // -> { subject, text }. Throws MailError("unknown_template" | "bad_field:<name>" | "placeholder").
 export function render(template, fields) {
   const t = Object.hasOwn(TEMPLATES, template) ? TEMPLATES[template] : null;
   if (!t) throw new MailError("unknown_template");
   for (const f of t.fields) if (!fieldOk(f, fields?.[f])) throw new MailError(`bad_field:${f}`);
-  const fill = (s) => s.replace(/\{([a-z_]+)\}/g, (m, k) => (t.fields.includes(k) ? fields[k] : m));
+  // CR-LINKPREVIEW.1: the links arrive as the server's direct links (validated above, unchanged) and go out as
+  // bervo.ai/go/<label>/... links, which preview as "Setup/Sign in - Bervo Dashboard" instead of Cloudflare's page
+  // (golink.js; the setup token moves to the #t= fragment). The words around them are unchanged.
+  const value = (k) => (LINK_FIELDS.includes(k) ? friendlyFromDirect(fields[k]) : fields[k]);
+  const fill = (s) => s.replace(/\{([a-z_]+)\}/g, (m, k) => (t.fields.includes(k) ? value(k) : m));
   const subject = fill(t.subject);
   // phone/computers are optional, read only for the invite, and never printed: they only decide whether the note shows.
   const text = fill(template === "invite" ? inviteBody(fields?.phone, fields?.computers) : t.body);

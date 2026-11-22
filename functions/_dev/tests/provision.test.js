@@ -26,6 +26,7 @@ const SECRET = "fake-provision-secret-0123456789abcdef";
 const LINK_KEY = "fake-link-key-0123456789abcdef-0123456789";
 const TOKEN = "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8S9t0U1v";
 const LINK = `https://zz-test.bervo.ai/set-password?t=${TOKEN}`;
+const GO = `https://bervo.ai/go/zz-test/set-password#t=${TOKEN}`;   // CR-LINKPREVIEW.1: what the email carries
 const TOKEN2 = "Z9y8X7w6V5u4T3s2R1q0P9o8N7m6L5k4J3i2H1g0F9e";
 const LINK2 = `https://zz-test.bervo.ai/set-password?t=${TOKEN2}`;
 const ADDRESS = "pat@example.com";
@@ -252,7 +253,7 @@ test("L3 Send with the delivered link: one email with that link, the link delete
   const calls = [];
   assert.match(await adminPost(db, { id: String(id), action: "send_invite_stored" }, { calls }), /sent=ok/);
   assert.equal(calls.length, 1);
-  assert.ok(calls[0].body.TextBody.includes(LINK) && calls[0].body.Tag === "invite");
+  assert.ok(calls[0].body.TextBody.includes(GO) && !calls[0].body.TextBody.includes(LINK) && calls[0].body.Tag === "invite");
   assert.equal(linkRows(db).length, 0, "deleted the moment the email is sent");
   assert.equal(reqRow(db, id).status, "invited");
   assert.match(await adminPost(db, { id: String(id), action: "send_invite_stored" }, { calls }), /sent=nolink/);
@@ -287,7 +288,7 @@ test("A1 AUTO_SEND_INVITE: off/unset never sends on arrival; on sends the invite
   let db = makeD1(); let id = seed(db); let calls = [];
   const r = await link(db, { request_id: id, kind: "invite", link: LINK }, { env: ENV(db, { AUTO_SEND_INVITE: "on" }), calls });
   assert.deepEqual([r.body.result, calls.length, linkRows(db).length, reqRow(db, id).status], ["sent", 1, 0, "invited"]);
-  assert.ok(calls[0].body.TextBody.includes(LINK));
+  assert.ok(calls[0].body.TextBody.includes(GO));
   // on, but a reminder arrives: AUTO_SEND_INVITE never sends a reminder
   db = makeD1(); id = seed(db); inviteSent(db, id, 3.5); calls = [];
   await link(db, { request_id: id, kind: "reminder3", link: LINK }, { env: ENV(db, { AUTO_SEND_INVITE: "on" }), calls });
@@ -319,7 +320,7 @@ test("A2 AUTO_SEND_REMINDERS: off never sends; on sends only the due reminder, n
   db = makeD1(); id = seed(db); inviteSent(db, id, 3.5); calls = [];
   let r = await link(db, { request_id: id, kind: "reminder3", link: LINK }, { env: ENV(db, { AUTO_SEND_REMINDERS: "on" }), calls });
   assert.deepEqual([r.body.result, calls.length, linkRows(db).length], ["sent", 1, 0]);
-  assert.ok(calls[0].body.TextBody.includes(LINK) && calls[0].body.Tag === "reminder_day3");
+  assert.ok(calls[0].body.TextBody.includes(GO) && calls[0].body.Tag === "reminder_day3");
   // on, but the day-10 link arrives on day 3.5: not due -> stored, not sent
   db = makeD1(); id = seed(db); inviteSent(db, id, 3.5); calls = [];
   r = await link(db, { request_id: id, kind: "reminder10", link: LINK }, { env: ENV(db, { AUTO_SEND_REMINDERS: "on" }), calls });

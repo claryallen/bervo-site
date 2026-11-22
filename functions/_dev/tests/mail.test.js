@@ -25,6 +25,10 @@ const AUD = "aud-tag-test";
 const FAKE_TOKEN = "fake-postmark-token-for-tests";
 const HOOK_SECRET = "fake-webhook-secret-0123456789";
 const LINK = "https://zz-test.bervo.ai/set-password?t=" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8S9t0U1v";
+// CR-LINKPREVIEW.1: what the emails carry for LINK (the token in the fragment) and for the dashboard / texts links.
+const GO = "https://bervo.ai/go/zz-test/set-password#t=" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8S9t0U1v";
+const DASH_GO = "https://bervo.ai/go/zz-test";
+const TEXTS_GO = "https://bervo.ai/go/zz-test/welcome?step=texts";
 const ADDRESS = "pat@example.com";
 
 function makeD1({ mailTable = true } = {}) {
@@ -134,7 +138,7 @@ async function hookPost(db, rec, { auth = `postmark:${HOOK_SECRET}`, env, logs =
 test("M1 render: the invite is Allen's approved §5 text with the name and link filled in; bad fields refused", () => {
   const { subject, text } = mail.render("invite", { first_name: "Pat", link: LINK });
   assert.equal(subject, "Your Bervo invite");
-  assert.ok(text.startsWith("Hi Pat,\n") && text.includes("\n" + LINK + "\n") && text.endsWith("\nThe Bervo Team"));
+  assert.ok(text.startsWith("Hi Pat,\n") && text.includes("\n" + GO + "\n") && !text.includes("?t=") && text.endsWith("\nThe Bervo Team"));
   assert.ok(!/\{[a-z_]+\}/.test(text));
   assert.equal(admin.INVITE_EMAIL_TEMPLATE, mail.TEMPLATES.invite.body, "the Copy fallback uses the same words");
   const bad = [
@@ -160,24 +164,24 @@ const SIGNIN = "When you open the link, you'll first see a sign-in page from Clo
 test("M2 Allen's approved words (NEXT_USER_WORDS_V1 §A, 11-11), word for word; no placeholder left; [GTM] still refused", () => {
   const inv = mail.render("invite", { first_name: "Pat", link: LINK }).text;
   // invite: Allen's rewrite 2026-11-15, word for word.
-  assert.equal(inv, `Hi Pat,\n\nThanks for requesting an invite to Bervo.\n\nHere's your personal setup link:\n${LINK}\n\n` +
+  assert.equal(inv, `Hi Pat,\n\nThanks for requesting an invite to Bervo.\n\nHere's your personal setup link:\n${GO}\n\n` +
     SIGNIN + "\n\n" +
     "You'll need about 20 minutes at your desktop computer, your phone, and the sign-in(s) for the email account(s) you want to connect to Bervo.\n\n" +
     "This link stays open for 14 days. Stopped partway? Sign in again with your email and password and you'll pick up " +
     "where you left off.\n\nBervo is free until January 5, 2027. We'll confirm your billing several days prior to January 5, cancel anytime.\n\nAny questions, just reply to this email.\n\nThe Bervo Team");
   const r3 = mail.render("reminder_day3", { first_name: "Pat", link: LINK, expiry_date: "November 25" });
   assert.equal(r3.subject, "Your Bervo setup link");
-  assert.equal(r3.text, `Hi Pat,\n\nJust a reminder that your Bervo setup is waiting. Here's a fresh link (the one in our earlier email no longer works):\n${LINK}\n\n` +
+  assert.equal(r3.text, `Hi Pat,\n\nJust a reminder that your Bervo setup is waiting. Here's a fresh link (the one in our earlier email no longer works):\n${GO}\n\n` +
     SIGNIN + "\n\n" +
     "It stays open until November 25. If now isn't a good time, reply and we'll send a new one when you're ready.\n\nThe Bervo Team");
   const r10 = mail.render("reminder_day10", { first_name: "Pat", link: LINK, expiry_date: "December 2" });
   assert.equal(r10.subject, "Still want to set up Bervo?");
-  assert.equal(r10.text, `Hi Pat,\n\nHere's a new setup link, in case the earlier ones got buried:\n${LINK}\n\n` +
+  assert.equal(r10.text, `Hi Pat,\n\nHere's a new setup link, in case the earlier ones got buried:\n${GO}\n\n` +
     SIGNIN + "\n\n" +
     "It stays open until December 2. If you'd rather start later, reply and we'll send one then.\n\nThe Bervo Team");
   const ld = mail.render("loaded", { first_name: "Pat", start_date: "October 12", dashboard_link: "https://zz-test.bervo.ai/" });
   assert.equal(ld.subject, "Bervo is ready");
-  assert.equal(ld.text, "Hi Pat,\n\nBervo has read your email back to October 12, and your dashboard is ready:\nhttps://zz-test.bervo.ai/\n\n" +
+  assert.equal(ld.text, "Hi Pat,\n\nBervo has read your email back to October 12, and your dashboard is ready:\n" + DASH_GO + "\n\n" +
     "Start with Today. It shows your briefing, your schedule and anything waiting on you. Your first morning brief will be on your " +
     "dashboard tomorrow morning.\n\nBervo is free until January 5, 2027. We'll confirm your billing several days prior to January 5, cancel anytime.\n\nIf anything looks wrong, use Feedback at the top of the dashboard, or text Bervo.\n\nThe Bervo Team");
   for (const t of Object.values(mail.TEMPLATES)) assert.ok(!(t.subject + t.body).includes("[GTM"));
@@ -287,7 +291,7 @@ test("M6 Send on the admin page: sends once, marks the request invited, shows 's
   assert.equal(r.location, `/admin/invites?sent=ok&r=${id}#r${id}`);
   assert.equal(calls.length, 1);
   assert.equal(calls[0].body.To, ADDRESS);
-  assert.ok(calls[0].body.TextBody.includes(LINK));
+  assert.ok(calls[0].body.TextBody.includes(GO) && !calls[0].body.TextBody.includes(LINK));
   const req = request(db, id);
   assert.equal(req.status, "invited");
   assert.equal(req.invited_at, new Date(NOW).toISOString());
@@ -486,7 +490,7 @@ test("M16 reminder button: hidden before day 3; shown on day 3 with the fresh-li
   assert.equal(r.location, `/admin/invites?sent=reminder&r=${id}#r${id}`);
   assert.equal(calls.length, 1);
   assert.equal(calls[0].body.Subject, "Your Bervo setup link");
-  assert.ok(calls[0].body.TextBody.includes(FRESH) && calls[0].body.TextBody.includes("no longer works"));
+  assert.ok(calls[0].body.TextBody.includes("https://bervo.ai/go/zz-test/set-password#t=" + FRESH.split("t=")[1]) && calls[0].body.TextBody.includes("no longer works"));
   assert.ok(calls[0].body.TextBody.includes("It stays open until November 25."), "now + 13 days, request time zone (America/Chicago)");
   assert.equal(calls[0].body.To, ADDRESS);
   // a second press the same day: not due any more
@@ -556,7 +560,7 @@ test("M19 relay: a signed 'loaded' request sends the approved email once per ser
   assert.equal(calls.length, 1);
   assert.equal(calls[0].body.To, ADDRESS);
   assert.equal(calls[0].body.Subject, "Bervo is ready");
-  assert.ok(calls[0].body.TextBody.includes("back to October 12") && calls[0].body.TextBody.includes("https://zz-test.bervo.ai/"));
+  assert.ok(calls[0].body.TextBody.includes("back to October 12") && calls[0].body.TextBody.includes(DASH_GO + "\n"));
   const row = mailRows(db)[0];
   assert.equal(row.tenant, "zz-test");
   assert.equal(row.request_id, null);
@@ -611,7 +615,7 @@ test("M19b relay (CR-POSTREH1121.1): texts_mac / texts_android send once each pe
   assert.equal(r.body.result, "sent");
   assert.equal(calls[0].body.Subject, "How to add your text messages to Bervo");
   const t = calls[0].body.TextBody;
-  assert.ok(t.includes("https://zz-test.bervo.ai/welcome?step=texts") && t.includes("Full Disk Access") && t.includes("The Bervo Team"));
+  assert.ok(t.includes(TEXTS_GO) && !t.includes("https://zz-test.bervo.ai/") && t.includes("Full Disk Access") && t.includes("The Bervo Team"));
   for (const bad of ["Google Play", "backup", "\u2014", "RCS", "{"]) assert.ok(!t.includes(bad), bad);
   r = await relayPost(db, await signed(MAC()), { calls, logs });
   assert.equal(r.body.result, "already_sent");
@@ -706,12 +710,12 @@ test("DW1 render matrix: the paragraph appears only for iphone and no Mac, right
     const want = phone === "iphone" && (computers === '["windows"]' || computers === '["none"]');
     assert.equal(text.includes(DW_NOTE), want, `${phone} ${computers}`);
     if (!want) assert.equal(text, DW_BASE, `${phone} ${computers} unchanged`);
-    else assert.equal(text, DW_BASE.replace(`${LINK}\n\n${SIGNIN}\n\n`, `${LINK}\n\n${SIGNIN}\n\n${DW_NOTE}\n\n`));
+    else assert.equal(text, DW_BASE.replace(`${GO}\n\n${SIGNIN}\n\n`, `${GO}\n\n${SIGNIN}\n\n${DW_NOTE}\n\n`));
     n++;
   }
   assert.equal(n, 10);
   const t = mail.render("invite", { first_name: "Pat", link: LINK, phone: "iphone", computers: '["none"]' }).text;
-  assert.ok(t.indexOf(LINK) < t.indexOf(SIGNIN) && t.indexOf(SIGNIN) < t.indexOf(DW_NOTE)
+  assert.ok(t.indexOf(GO) >= 0 && t.indexOf(GO) < t.indexOf(SIGNIN) && t.indexOf(SIGNIN) < t.indexOf(DW_NOTE)
     && t.indexOf(DW_NOTE) < t.indexOf("You'll need about 20 minutes"));
   assert.equal(mail.render("invite", { first_name: "Pat", link: LINK, phone: "iphone", computers: "not json" }).text, DW_BASE);
   assert.equal(mail.render("invite", { first_name: "Pat", link: LINK, phone: "iphone", computers: "" }).text, DW_BASE);
@@ -764,7 +768,7 @@ test("SP1 CR-SIGNINPAGE.1: the Cloudflare sign-in paragraph, once, right after t
   };
   for (const [k, t] of Object.entries(linked)) {
     assert.equal(t.split(SIGNIN).length - 1, 1, `${k}: exactly once`);
-    assert.ok(t.includes(`\n${LINK}\n\n${SIGNIN}\n\n`), `${k}: its own paragraph right after the link`);
+    assert.ok(t.includes(`\n${GO}\n\n${SIGNIN}\n\n`), `${k}: its own paragraph right after the link`);
   }
   const others = {
     loaded: mail.render("loaded", { first_name: "Pat", start_date: "October 12", dashboard_link: "https://zz-test.bervo.ai/" }).text,

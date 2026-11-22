@@ -44,8 +44,12 @@
 /invite-thanks.js
   Cache-Control: no-cache
 
-# CR-LINKPREVIEW.1 Phase 0 (test pages, temporary; removed after the test): one same-origin script for variant b.
-/go-test/*
+# CR-LINKPREVIEW.1: /go/<label>/<page> is a Pages Function (functions/go/[[path]].js), which sets its own headers
+# (Pages does not apply this file to a Function's response). This block says the same, in case it ever does: one
+# same-origin script, /go.js, revalidated on every load like the other scripts.
+/go/*
   ! Content-Security-Policy
   Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
+
+/go.js
   Cache-Control: no-cache
