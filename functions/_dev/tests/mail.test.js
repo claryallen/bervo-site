@@ -152,20 +152,28 @@ test("M1 render: the invite is Allen's approved §5 text with the name and link 
   assert.throws(() => mail.render("nope", {}), { code: "unknown_template" });
 });
 
+// CR-SIGNINPAGE.1 (Allen 11-22, decision 1): written out here, not imported, so a change to mail.js shows up as a failure.
+const SIGNIN = "When you open the link, you'll first see a sign-in page from Cloudflare, the security service that guards your " +
+  "private Bervo server. Enter this email address and Cloudflare will email you a one-time code. Type it in, and you're in. " +
+  "The code comes from noreply@notify.cloudflare.com and works for 10 minutes.";
+
 test("M2 Allen's approved words (NEXT_USER_WORDS_V1 §A, 11-11), word for word; no placeholder left; [GTM] still refused", () => {
   const inv = mail.render("invite", { first_name: "Pat", link: LINK }).text;
   // invite: Allen's rewrite 2026-11-15, word for word.
   assert.equal(inv, `Hi Pat,\n\nThanks for requesting an invite to Bervo.\n\nHere's your personal setup link:\n${LINK}\n\n` +
+    SIGNIN + "\n\n" +
     "You'll need about 20 minutes at your desktop computer, your phone, and the sign-in(s) for the email account(s) you want to connect to Bervo.\n\n" +
     "This link stays open for 14 days. Stopped partway? Sign in again with your email and password and you'll pick up " +
     "where you left off.\n\nBervo is free until January 5, 2027. We'll confirm your billing several days prior to January 5, cancel anytime.\n\nAny questions, just reply to this email.\n\nThe Bervo Team");
   const r3 = mail.render("reminder_day3", { first_name: "Pat", link: LINK, expiry_date: "November 25" });
   assert.equal(r3.subject, "Your Bervo setup link");
   assert.equal(r3.text, `Hi Pat,\n\nJust a reminder that your Bervo setup is waiting. Here's a fresh link (the one in our earlier email no longer works):\n${LINK}\n\n` +
+    SIGNIN + "\n\n" +
     "It stays open until November 25. If now isn't a good time, reply and we'll send a new one when you're ready.\n\nThe Bervo Team");
   const r10 = mail.render("reminder_day10", { first_name: "Pat", link: LINK, expiry_date: "December 2" });
   assert.equal(r10.subject, "Still want to set up Bervo?");
   assert.equal(r10.text, `Hi Pat,\n\nHere's a new setup link, in case the earlier ones got buried:\n${LINK}\n\n` +
+    SIGNIN + "\n\n" +
     "It stays open until December 2. If you'd rather start later, reply and we'll send one then.\n\nThe Bervo Team");
   const ld = mail.render("loaded", { first_name: "Pat", start_date: "October 12", dashboard_link: "https://zz-test.bervo.ai/" });
   assert.equal(ld.subject, "Bervo is ready");
@@ -691,19 +699,20 @@ const DW_NOTE = "One note before you start: Bervo reads iPhone texts through its
   "Bervo still works with your email, calendar and dashboard, and you can text Bervo anytime. Your own texts just won't come in.";
 const DW_BASE = mail.render("invite", { first_name: "Pat", link: LINK }).text;
 
-test("DW1 render matrix: the paragraph appears only for iphone and no Mac, right after the link paragraph, else byte-identical", () => {
+test("DW1 render matrix: the paragraph appears only for iphone and no Mac, right after the link and sign-in paragraphs, else byte-identical", () => {
   let n = 0;
   for (const phone of ["iphone", "android"]) for (const computers of ['["mac"]', '["windows"]', '["windows","mac"]', '["none"]', null]) {
     const text = mail.render("invite", { first_name: "Pat", link: LINK, phone, computers }).text;
     const want = phone === "iphone" && (computers === '["windows"]' || computers === '["none"]');
     assert.equal(text.includes(DW_NOTE), want, `${phone} ${computers}`);
     if (!want) assert.equal(text, DW_BASE, `${phone} ${computers} unchanged`);
-    else assert.equal(text, DW_BASE.replace(`${LINK}\n\n`, `${LINK}\n\n${DW_NOTE}\n\n`));
+    else assert.equal(text, DW_BASE.replace(`${LINK}\n\n${SIGNIN}\n\n`, `${LINK}\n\n${SIGNIN}\n\n${DW_NOTE}\n\n`));
     n++;
   }
   assert.equal(n, 10);
   const t = mail.render("invite", { first_name: "Pat", link: LINK, phone: "iphone", computers: '["none"]' }).text;
-  assert.ok(t.indexOf(LINK) < t.indexOf(DW_NOTE) && t.indexOf(DW_NOTE) < t.indexOf("You'll need about 20 minutes"));
+  assert.ok(t.indexOf(LINK) < t.indexOf(SIGNIN) && t.indexOf(SIGNIN) < t.indexOf(DW_NOTE)
+    && t.indexOf(DW_NOTE) < t.indexOf("You'll need about 20 minutes"));
   assert.equal(mail.render("invite", { first_name: "Pat", link: LINK, phone: "iphone", computers: "not json" }).text, DW_BASE);
   assert.equal(mail.render("invite", { first_name: "Pat", link: LINK, phone: "iphone", computers: "" }).text, DW_BASE);
 });
@@ -742,4 +751,26 @@ test("DW4 Copy fallback shows the same text as Send, per row", async () => {
   assert.ok(body.includes('data-first="Bo" data-variant="plain"'));
   assert.ok(body.includes(JSON.stringify(mail.inviteBody("iphone", '["none"]')).replace(/</g, "\\u003c")), "the page embeds the same text Send builds");
   assert.equal(admin.INVITE_EMAIL_TEMPLATE, mail.TEMPLATES.invite.body, "plain Copy unchanged");
+});
+
+test("SP1 CR-SIGNINPAGE.1: the Cloudflare sign-in paragraph, once, right after the link in the invite and both reminders only", () => {
+  assert.equal(mail.CLOUDFLARE_SIGNIN_NOTE, SIGNIN, "Allen's approved words (11-22), word for word");
+  assert.ok(!/[–—]/.test(SIGNIN), "no en or em dash in customer copy");
+  const linked = {
+    invite: mail.render("invite", { first_name: "Pat", link: LINK }).text,
+    invite_note: mail.render("invite", { first_name: "Pat", link: LINK, phone: "iphone", computers: '["none"]' }).text,
+    reminder_day3: mail.render("reminder_day3", { first_name: "Pat", link: LINK, expiry_date: "November 25" }).text,
+    reminder_day10: mail.render("reminder_day10", { first_name: "Pat", link: LINK, expiry_date: "December 2" }).text,
+  };
+  for (const [k, t] of Object.entries(linked)) {
+    assert.equal(t.split(SIGNIN).length - 1, 1, `${k}: exactly once`);
+    assert.ok(t.includes(`\n${LINK}\n\n${SIGNIN}\n\n`), `${k}: its own paragraph right after the link`);
+  }
+  const others = {
+    loaded: mail.render("loaded", { first_name: "Pat", start_date: "October 12", dashboard_link: "https://zz-test.bervo.ai/" }).text,
+    texts_mac: mail.render("texts_mac", { first_name: "Pat", texts_link: "https://zz-test.bervo.ai/welcome?step=texts" }).text,
+    texts_android: mail.render("texts_android", { first_name: "Pat", dashboard_link: "https://zz-test.bervo.ai/" }).text,
+  };
+  for (const [k, t] of Object.entries(others)) assert.ok(!t.includes("Cloudflare"), `${k}: no sign-in paragraph (already signed in)`);
+  assert.ok(admin.INVITE_EMAIL_TEMPLATE.includes(`{link}\n\n${SIGNIN}\n\n`), "the admin page's Copy fallback carries it too");
 });

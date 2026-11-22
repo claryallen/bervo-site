@@ -32,6 +32,15 @@ export const DEFAULT_FROM = "Bervo <hello@bervo.ai>";
 // "same change": the reminders and loaded are signed "The Bervo Team" too, and day 3 says "our earlier email".
 // Same day: the invite's and loaded's billing paragraph adds "We'll confirm your billing several days prior to January 5, cancel anytime."
 // render() still refuses any text carrying "[GTM]", so a future placeholder can never reach a customer.
+// CR-SIGNINPAGE.1 (Allen 11-22, "yes to all four recommendations and assumptions, build it"; GTM's line plus the
+// sender/10-minute sentence, decision 1): its own paragraph right after the setup link in the invite and both
+// reminders (each link opens Cloudflare's sign-in page first). Word for word; American spelling, no em dash.
+// Not in loaded / texts_*: their links reach a server the owner has already signed in to.
+export const CLOUDFLARE_SIGNIN_NOTE =
+  "When you open the link, you'll first see a sign-in page from Cloudflare, the security service that guards your " +
+  "private Bervo server. Enter this email address and Cloudflare will email you a one-time code. Type it in, and " +
+  "you're in. The code comes from noreply@notify.cloudflare.com and works for 10 minutes.";
+
 export const TEMPLATES = {
   invite: {
     subject: "Your Bervo invite",
@@ -43,6 +52,8 @@ export const TEMPLATES = {
       "",
       "Here's your personal setup link:",
       "{link}",
+      "",
+      CLOUDFLARE_SIGNIN_NOTE,
       "",
       "You'll need about 20 minutes at your desktop computer, your phone, and the sign-in(s) for the email " +
         "account(s) you want to connect to Bervo.",
@@ -66,6 +77,8 @@ export const TEMPLATES = {
       "Just a reminder that your Bervo setup is waiting. Here's a fresh link (the one in our earlier email no longer works):",
       "{link}",
       "",
+      CLOUDFLARE_SIGNIN_NOTE,
+      "",
       "It stays open until {expiry_date}. If now isn't a good time, reply and we'll send a new one when you're ready.",
       "",
       "The Bervo Team",
@@ -79,6 +92,8 @@ export const TEMPLATES = {
       "",
       "Here's a new setup link, in case the earlier ones got buried:",
       "{link}",
+      "",
+      CLOUDFLARE_SIGNIN_NOTE,
       "",
       "It stays open until {expiry_date}. If you'd rather start later, reply and we'll send one then.",
       "",
@@ -188,10 +203,13 @@ export function needsIphoneNoMacNote(phone, computers) {
 }
 
 // The invite body with {first_name}/{link} still unfilled: the paragraph goes right after the link paragraph.
+// CR-SIGNINPAGE.1: the Cloudflare sign-in paragraph stays next to the link (it says what opening the link shows),
+// so this note follows it.
 export function inviteBody(phone, computers) {
   const body = TEMPLATES.invite.body;
   if (!needsIphoneNoMacNote(phone, computers)) return body;
-  return body.replace("{link}\n", "{link}\n\n" + IPHONE_NO_MAC_NOTE + "\n");
+  const at = "{link}\n\n" + CLOUDFLARE_SIGNIN_NOTE + "\n";
+  return body.replace(at, at + "\n" + IPHONE_NO_MAC_NOTE + "\n");
 }
 
 // A set-password link as tools/tenant/owner_invite_link.py prints it: https://<host>.bervo.ai/set-password?t=<token>
