@@ -555,7 +555,7 @@ form.inv input,form.inv select{font:16px var(--body);padding:10px 12px;border:1p
   </div></section>
 
   <section class="b alt"><div class="in split">
-    <div class="head" style="margin:0"><div class="eyebrow">Privacy First, by design</div><h2>A memory this deep belongs to you.</h2>
+    <div class="head" style="margin:0"><div class="eyebrow">Privacy First, by design</div><h2>Private by design.</h2>
       <p class="quote">Before anything from your email, calendar and texts reaches the AI, the last names of your contacts and the people you correspond with are truncated, and email addresses, phone numbers, and attachments are removed.</p>
       <p class="muted">Your own private server on the Dedicated plan, read-only access, and your own AI account, so you see every cost.</p></div>
     <div class="ctas"><a class="btn p" href="/invite">Request an Invite</a><a class="btn s" href="#privacy-security">Privacy &amp; Security</a></div>
@@ -619,27 +619,76 @@ form.inv input,form.inv select{font:16px var(--body);padding:10px 12px;border:1p
   <section class="hero"><div class="in"><div class="hero-copy">
     <div class="eyebrow">Privacy &amp; Security</div>
     <h1>A memory this deep belongs to you.</h1>
-    <p class="quote">Before anything from your email, calendar and texts reaches the AI, the last names of your contacts and the people you correspond with are truncated, and email addresses, phone numbers, and attachments are removed.</p>
-    <p class="muted">If masking ever fails, Bervo stops instead of sending.</p>
-  </div><figure class="ill2" aria-label="Illustration: three protections as concrete cases: masking, stopping if masking fails, and the leave-out list."><div class="stack">
+    <p class="sub">Bervo knows your email, your texts and your relationships. Here is exactly how that stays yours.</p>
+    <div class="jump"><a href="#privacy-security" data-anchor="ps-ai">Names masked</a><a href="#privacy-security" data-anchor="ps-can">Read-only</a><a href="#privacy-security" data-anchor="ps-where">Your own server</a><a href="#privacy-security" data-anchor="ps-ai-account">Not used for training</a><a href="#privacy-security" data-anchor="ps-ai-account">Your own AI account</a><a href="#privacy-security" data-anchor="ps-exit">Delete anytime</a></div>
+  </div></div></section>
+
+  <section class="b alt"><div class="in split">
+    <div class="head" style="margin:0" id="ps-ai"><div class="eyebrow">What the AI sees</div><h2>Masked before anything reaches the AI.</h2>
+      <p class="quote">Before anything from your email, calendar and texts reaches the AI, the last names of your contacts and the people you correspond with are truncated, and email addresses, phone numbers, and attachments are removed.</p>
+      <ul style="margin:0;padding-left:18px;display:grid;gap:6px;color:var(--muted)"><li>If masking ever fails, Bervo stops instead of sending.</li><li>Texts are optional. Connect them only if you choose.</li><li>Texts with anyone on your leave-out list are deleted the moment they arrive, before anything reads them.</li></ul></div>
+    <figure class="ill2" aria-label="Illustration: three protections as concrete cases: masking, stopping if masking fails, and the leave-out list."><div class="stack">
       <div class="row2">
         <div class="mc"><span class="k">In your mail<svg class="ki" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><rect x="2" y="3.5" width="12" height="9" rx="1.5"/><path d="M2.5 5l5.5 4 5.5-4"/></svg></span><b>Dana Reyes</b><br>dana@example.com<br>"Can we move Thursday?"</div>
         <div class="mc out"><span class="k">What the AI sees</span><b>Dana R</b><br><span class="gone">email address removed</span><br>"Can we move Thursday?"</div>
       </div>
       <div class="mc"><span class="k">If masking ever fails</span><span class="bad">Stopped.</span> Nothing is sent to the AI.</div>
       <div class="mc"><span class="k">A text from someone on your leave-out list<svg class="ki" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M3 3h10a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H7l-3 2.5V11H3a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/></svg></span><span class="gone">Deleted the moment it arrives. Nothing reads it.</span></div>
-    </div></figure></div></section>
+    </div></figure>
+  </div></section>
+
+  <section class="b"><div class="in">
+    <div class="head" id="ps-where"><div class="eyebrow">Where your data lives</div><h2>Your own server, or your own walled-off account.</h2>
+      <p class="lead">Your data is never pooled with other customers' data, and no database is shared with anyone else.</p></div>
+    <div class="grid g2">
+      <div class="card"><h3>Dedicated</h3><p class="muted">Bervo runs on a private server that's yours alone.</p></div>
+      <div class="card"><h3>Standard</h3><p class="muted">Your Bervo runs in a walled-off account on a shared server. Your data, files and security keys stay apart from every other customer's.</p></div>
+      <div class="card"><h3>No open doors</h3><p class="muted">The server has no open ports to the internet. You reach it only through an encrypted tunnel, after a one-time code we email you, and then your Bervo password.</p></div>
+      <div class="card"><h3>Your keys stay home</h3><p class="muted">The connections to your accounts and your AI key are stored on your own server only, never in a shared store.</p></div>
+    </div>
+  </div></section>
+
   <section class="b alt"><div class="in">
+    <div class="head" id="ps-can"><div class="eyebrow">What Bervo can and can't do</div><h2>It reads. It never sends.</h2></div>
     <div class="grid g3">
-      <div class="card"><h3>Dedicated or shared private server</h3><p class="muted">With Dedicated, Bervo runs on a private server that's yours alone. With Standard, your Bervo runs in a walled-off account on a shared server. Your data, files and security keys stay apart from every other customer's.</p></div>
       <div class="card"><h3>Read-only</h3><p class="muted">Bervo reads your mail, calendar and contacts. It cannot send, delete or change them.</p></div>
-      <div class="card"><h3>Leave people out</h3><p class="muted">Texts with anyone on your leave-out list are deleted the moment they arrive, before anything reads them.</p></div>
       <div class="card"><h3>Delete means gone</h3><p class="muted">Delete an email in a connected mailbox and it leaves Bervo at the next sync. Archiving changes nothing.</p></div>
+      <div class="card"><h3>Revoke anytime</h3><p class="muted">Remove Bervo's access in your Google or Microsoft account, or remove the Mac app, and new data stops immediately.</p></div>
+    </div>
+  </div></section>
+
+  <section class="b"><div class="in">
+    <div class="head" id="ps-who"><div class="eyebrow">Who can see your data</div><h2>You, and the people you choose.</h2></div>
+    <div class="grid g3">
       <div class="card"><h3>The team never reads your content</h3><p class="muted">Operator access is logged and limited. Feedback reaches the team as a general description, never your words.</p></div>
+      <div class="card"><h3>Your assistant sees what you allow</h3><p class="muted">You choose what your assistant can see and do, and you can remove their access instantly.</p></div>
+      <div class="card"><h3>No selling, no advertising</h3><p class="muted">We don't sell your data or use it for advertising.</p></div>
+    </div>
+  </div></section>
+
+  <section class="b alt"><div class="in">
+    <div class="head" id="ps-ai-account"><div class="eyebrow">The AI</div><h2>Your AI, on your account.</h2></div>
+    <div class="grid g2">
       <div class="card"><h3>Not used to train AI</h3><p class="muted">Bervo doesn't train AI on your data, and under Anthropic's commercial terms, Anthropic doesn't use it for training by default. What Bervo learns about you is kept on your own server (in your own account on Standard); only feedback you choose to send reaches the Bervo team.</p></div>
       <div class="card"><h3>Your own AI account</h3><p class="muted">The AI runs on your own account with Anthropic, so you see every cost, with an estimate of your first load during setup.</p></div>
     </div>
-    <p class="muted" style="margin-top:28px">Read the <a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a> and <a href="/terms" target="_blank" rel="noopener">Terms</a>.</p>
+  </div></section>
+
+  <section class="b"><div class="in">
+    <div class="head" id="ps-exit"><div class="eyebrow">Your data, your exit</div><h2>Take it with you, or have it deleted.</h2></div>
+    <div class="grid g3">
+      <div class="card"><h3>Export</h3><p class="muted">Ask and we'll send you a copy of your databases and your notes. We offer it before any deletion.</p></div>
+      <div class="card"><h3>Delete</h3><p class="muted">We remove your server or account within 2 days of your request, remaining backups expire within 7 days, and we confirm in writing.</p></div>
+      <div class="card"><h3>How long Bervo keeps things</h3><p class="muted">The full text of mail you receive is kept for a rolling 90 days. Summaries, and the tasks and commitments drawn from your messages, stay for as long as you're a customer.</p></div>
+    </div>
+  </div></section>
+
+  <section class="b alt"><div class="in">
+    <div class="head" id="ps-partners"><div class="eyebrow">Who we work with</div><h2>A short list, each with one job.</h2>
+      <p class="lead">Each provider receives only what its role requires.</p></div>
+    <ul style="margin:0;padding-left:18px;display:grid;gap:6px;color:var(--muted)"><li><b>DigitalOcean</b>: hosting.</li><li><b>Anthropic</b>: the AI model, on your own account.</li><li><b>Photon</b>: delivers texts between you and Bervo's number.</li><li><b>Cloudflare</b>: our domain, the sign-in code, the encrypted tunnel to your server, and the invite form.</li><li><b>Postmark</b>: account emails such as your invite.</li><li><b>Tailscale</b>: Bervo's private operations network.</li><li><b>Deepgram</b>: speech for Voice, only if you turn Voice on.</li></ul>
+    <p class="fine" style="margin-top:18px">Bervo's use of information received from Google APIs adheres to the Google API Services User Data Policy, including the Limited Use requirements.</p>
+    <p class="muted" style="margin-top:28px">Read the <a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a> and <a href="/terms" target="_blank" rel="noopener">Terms</a>. Questions? privacy@bervo.ai</p>
   </div></section>
 </div>
 
