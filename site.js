@@ -9,13 +9,11 @@ function show(){
   document.getElementById("menu").classList.remove("open");
   document.getElementById("menu-toggle").setAttribute("aria-expanded","false");
   if(pendingAnchor){const el=document.getElementById(pendingAnchor);pendingAnchor=null;if(el){setTimeout(()=>el.scrollIntoView({behavior:"smooth",block:"start"}),30);return;}}
-  if(id!=="video-overview") window.scrollTo(0,0);
+  window.scrollTo(0,0);
 }
 document.addEventListener("click",e=>{
   const a=e.target.closest("a[data-anchor]");
   if(a){pendingAnchor=a.dataset.anchor; if(location.hash===a.getAttribute("href")){e.preventDefault();show();}}
-  const v=e.target.closest('a[href="#video-overview"]');
-  if(v){e.preventDefault();document.getElementById("video-overview").scrollIntoView({behavior:"smooth",block:"center"});}
 });
 addEventListener("hashchange",show);
 document.getElementById("menu-toggle").addEventListener("click",()=>{const m=document.getElementById("menu");const o=m.classList.toggle("open");document.getElementById("menu-toggle").setAttribute("aria-expanded",String(o));});
