@@ -519,7 +519,7 @@ test("bidi, zero-width and other format characters are stripped from every text 
 
 test("non-site files live under functions/ (Pages does not serve that directory); nothing extra at the root", () => {
   const root = readdirSync(ROOT).filter((n) => !n.startsWith(".git"));
-  const allowed = new Set(["404.html", "_headers", "_redirects", "download", "fonts", "functions", "index.html", "invite-thanks.html",
+  const allowed = new Set(["404.html", "_headers", "_redirects", "brand", "download", "fonts", "functions", "index.html", "invite-thanks.html",
     "invite.html", "invite.js", "invite-thanks.js", "privacy.html", "site.js", "terms.html", ".well-known"]);
   assert.deepEqual(root.filter((n) => !allowed.has(n)), [], "unexpected files at the served root");
   for (const f of ["functions/_lib/invites.js", "functions/_dev/tests/invite.test.js"]) {
