@@ -1,10 +1,10 @@
-const PAGES=["home","why","features","assistants","privacy-security","pricing"];
+const PAGES=["home","why","assistants","privacy-security","pricing"];
 let pendingAnchor=null;
 function show(){
   const id=(location.hash||"#home").slice(1);
   const page=PAGES.includes(id)?id:"home";
   PAGES.forEach(p=>{document.getElementById("p-"+p).hidden=p!==page;});
-  const navPage=page==="assistants"?"features":page;
+  const navPage=page==="assistants"?"why":page;
   document.querySelectorAll("nav.menu a").forEach(a=>{ if(a.getAttribute("href")==="#"+navPage) a.setAttribute("aria-current","page"); else a.removeAttribute("aria-current");});
   document.getElementById("menu").classList.remove("open");
   document.getElementById("menu-toggle").setAttribute("aria-expanded","false");
