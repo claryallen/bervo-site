@@ -104,7 +104,74 @@ export const TEMPLATES = {
       "The Bervo Team",
     ].join("\n"),
   },
+  // CR-POSTREH1121.1 item 4 (Allen 11-21, rehearsal P10): "how to add your texts", sent once per customer server
+  // when setup completes, relayed by the router like "loaded". DRAFT wording for Allen's review at the build go
+  // (daily-dashboard docs/orchestrator/reports/2026-11-21-post-rehearsal-batch.md); no RCS limits (Allen: omit
+  // until confirmed with Matt); never "Google Play"; American spelling; no em dashes.
+  texts_mac: {
+    subject: "How to add your text messages to Bervo",
+    fields: ["first_name", "texts_link"],
+    body: [
+      "Hi {first_name},",
+      "",
+      "Bervo catches plans and commitments made over text: errands, appointments, \"can you send me that?\" " +
+        "Adding your text messages takes about 10 minutes on your Mac.",
+      "",
+      "Open this email on your Mac, then:",
+      "",
+      "1. Open your texts page: {texts_link}",
+      "2. Click Download Bervo for Mac and open the installer. It's signed and checked by Apple.",
+      "3. Type the pairing code shown on that page into the Bervo app.",
+      "4. Turn on Full Disk Access for Bervo Companion. The page's Open System Settings button takes you there.",
+      "",
+      "What Bervo reads: the Messages on that Mac, including texts from your iPhone. Very short exchanges are skipped. " +
+        "Photos and attachments are never copied; Bervo sees only a note that one was sent.",
+      "",
+      "Anyone to leave out? Once your Mac's first sync finishes, add them on the same page. Their texts are deleted " +
+        "the moment they arrive, before anything reads or summarizes them. You can change this anytime in Settings \u2192 Texts.",
+      "",
+      "Assistants you add can't see your text summaries unless you turn on \"Can see text summaries\" for them in " +
+        "Settings \u2192 Assistants.",
+      "",
+      "Any questions, just reply to this email.",
+      "",
+      "The Bervo Team",
+    ].join("\n"),
+  },
+  texts_android: {
+    subject: "How to add your text messages to Bervo",
+    fields: ["first_name", "dashboard_link"],
+    body: [
+      "Hi {first_name},",
+      "",
+      "Bervo catches plans and commitments made over text: errands, appointments, \"can you send me that?\" " +
+        "Your Android texts come in through the Bervo app on your phone. No computer needed.",
+      "",
+      "Open this email on your Android phone, then:",
+      "",
+      "1. Open your dashboard: {dashboard_link}",
+      "2. Go to Settings \u2192 Texts and tap Get the Android app.",
+      "3. Open the downloaded file and allow the install.",
+      "4. On Android 13 or later: open your phone's Settings \u2192 Apps \u2192 Bervo Texts, tap \u22ee at the top right, " +
+        "then Allow restricted settings.",
+      "5. Open the Bervo Texts app and allow texts, contacts and message notifications.",
+      "6. Back in Settings \u2192 Texts on your dashboard, tap Get a pairing code. In the app, enter your dashboard " +
+        "address (the link above) and the code.",
+      "",
+      "What to expect: new texts reach Bervo about every 15 minutes. Anyone on your leave-out list in Settings \u2192 " +
+        "Texts is left out. Bervo never sends or changes a text, and photos aren't uploaded.",
+      "",
+      "Assistants you add can't see your text summaries unless you turn on \"Can see text summaries\" for them in " +
+        "Settings \u2192 Assistants.",
+      "",
+      "Any questions, just reply to this email.",
+      "",
+      "The Bervo Team",
+    ].join("\n"),
+  },
 };
+// The texts emails' templates (CR-POSTREH1121.1): accepted from the router (functions/api/account-mail.js), like loaded.
+export const SERVER_TEMPLATES = ["loaded", "texts_mac", "texts_android"];
 
 // CR-DEVICEWORDS.1 (Allen 11-12: invite email only, not the reminders). DEVICE_WORDS_V1.md section 1, word for word.
 // Shown only when the request has an iPhone and "mac" is NOT among the stored computers. computers NULL (a request
@@ -131,6 +198,7 @@ export function inviteBody(phone, computers) {
 // (token = secrets.token_urlsafe(32), 43 characters). Nothing else is accepted as {link}.
 export const INVITE_LINK_RE = /^https:\/\/[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*\.bervo\.ai\/set-password\?t=[A-Za-z0-9_-]{32,128}$/;
 const DASHBOARD_LINK_RE = /^https:\/\/[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*\.bervo\.ai\/$/;
+const TEXTS_LINK_RE = /^https:\/\/[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*\.bervo\.ai\/welcome\?step=texts$/;
 const NAME_MAX = 80;
 const DATE_RE = /^[A-Za-z0-9 ,]{1,40}$/;
 const ADDRESS_RE = /^[a-z0-9._%+\-]+@[a-z0-9\-]+(\.[a-z0-9\-]+)+$/;   // invites.js EMAIL_RE
@@ -145,6 +213,7 @@ function fieldOk(name, v) {
   if (/[{}]/.test(v)) return false;                                            // no template markers in a value (round 3)
   if (name === "link") return INVITE_LINK_RE.test(v);
   if (name === "dashboard_link") return DASHBOARD_LINK_RE.test(v);
+  if (name === "texts_link") return TEXTS_LINK_RE.test(v);
   if (name === "first_name") return v.trim().length > 0 && v.length <= NAME_MAX;
   if (name.endsWith("_date")) return DATE_RE.test(v);
   return false;

@@ -35,6 +35,7 @@ function makeD1({ mailTable = true } = {}) {
   sql.exec(readFileSync(path.join(ROOT, "functions/_dev/migrations/0005_heard_from.sql"), "utf8"));
   sql.exec(readFileSync(path.join(ROOT, "functions/_dev/migrations/0006_drop_company_role.sql"), "utf8"));
   if (mailTable) sql.exec(SCHEMA2);
+  if (mailTable) sql.exec(readFileSync(path.join(ROOT, "functions/_dev/migrations/0008_texts_mail.sql"), "utf8"));
   const norm = (a) => a.map((v) => (v === undefined ? null : v));
   return {
     raw: sql,
@@ -591,6 +592,32 @@ test("M20 relay refused: no secret, bad/old/forged signature, other templates, b
   const ok = await relayPost(db, await signed(LOADED()), { env, calls });
   assert.equal(ok.body.result, "sent");
   assert.deepEqual(mailRows(db).map((m) => m.status), ["failed", "sent"]);
+});
+
+test("M19b relay (CR-POSTREH1121.1): texts_mac / texts_android send once each per server, only their own fields", async () => {
+  const db = makeD1();
+  const calls = [], logs = [];
+  const MAC = (over = {}) => ({ tenant: "zz-test", template: "texts_mac", to: "Pat@Example.com",
+    fields: { first_name: "Pat", texts_link: "https://zz-test.bervo.ai/welcome?step=texts", start_date: "x" }, ...over });
+  let r = await relayPost(db, await signed(MAC()), { calls, logs });
+  assert.equal(r.body.result, "sent");
+  assert.equal(calls[0].body.Subject, "How to add your text messages to Bervo");
+  const t = calls[0].body.TextBody;
+  assert.ok(t.includes("https://zz-test.bervo.ai/welcome?step=texts") && t.includes("Full Disk Access") && t.includes("The Bervo Team"));
+  for (const bad of ["Google Play", "backup", "\u2014", "RCS", "{"]) assert.ok(!t.includes(bad), bad);
+  r = await relayPost(db, await signed(MAC()), { calls, logs });
+  assert.equal(r.body.result, "already_sent");
+  assert.equal(calls.length, 1);
+  r = await relayPost(db, await signed(MAC({ template: "texts_android", fields: { first_name: "Pat", dashboard_link: "https://zz-test.bervo.ai/" } })), { calls, logs });
+  assert.equal(r.body.result, "sent");
+  const a = calls[1].body.TextBody;
+  assert.ok(a.includes("Get the Android app") && a.includes("Allow restricted settings") && a.includes("Get a pairing code"));
+  for (const bad of ["Google Play", "backup", "\u2014", "RCS", "{"]) assert.ok(!a.includes(bad), bad);
+  assert.equal((await relayPost(db, await signed(MAC({ tenant: "zz-2", fields: { first_name: "Pat", texts_link: "https://evil.example/welcome?step=texts" } })), { calls })).body.result,
+    "bad_field:texts_link");
+  assert.deepEqual(mailRows(db).map((m) => m.template), ["texts_mac", "texts_android"]);
+  const kept = JSON.stringify(mailRows(db)) + logs.join("\n");
+  assert.ok(!kept.toLowerCase().includes("pat"), "no address or name kept");
 });
 
 test("M21 retention: a server's 'loaded' row keeps its hash 90 days, then only the once-only record stays", async () => {

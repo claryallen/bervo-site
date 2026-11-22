@@ -12,10 +12,10 @@
 // Accepted within 5 minutes of ts. A replay inside that window cannot send twice: one "loaded" email per tenant
 // (checked before sending, and a unique index in D1).
 //
-// Only the "loaded" template comes this way. The body's address, name, date and link are checked by
+// Only the server templates come this way: "loaded", and since CR-POSTREH1121.1 "texts_mac" / "texts_android". The body's address, name, date and link are checked by
 // mail.render (names: no control/format characters; link: https://<host>.bervo.ai/ only; date: words and digits).
 // Nothing from the body is logged except the tenant and the result; the address only as mail.js's salted hash.
-import { MailError, sendingOff, sendTemplate, TENANT_RE } from "../_lib/mail.js";
+import { MailError, sendingOff, sendTemplate, SERVER_TEMPLATES, TEMPLATES, TENANT_RE } from "../_lib/mail.js";
 
 const MAX_BYTES = 8192;
 const WINDOW_S = 300;
@@ -60,20 +60,22 @@ export async function onRequestPost(context) {
   try { body = JSON.parse(raw); } catch { return reply(400, { ok: false, result: "bad_body" }); }
   const tenant = typeof body?.tenant === "string" ? body.tenant : "";
   if (!TENANT_RE.test(tenant)) return reply(400, { ok: false, result: "bad_tenant" });
-  if (body.template !== "loaded") return reply(400, { ok: false, result: "bad_template" });
+  // CR-POSTREH1121.1 item 4: "loaded", and the two "how to add your texts" emails; each once per tenant.
+  const template = SERVER_TEMPLATES.includes(body.template) ? body.template : null;
+  if (!template) return reply(400, { ok: false, result: "bad_template" });
   if (!env.DB) return reply(503, { ok: false, result: "not_configured" });
-  const done = await env.DB.prepare("SELECT 1 FROM invite_mail WHERE tenant = ? AND template = 'loaded' AND status <> 'failed' LIMIT 1")
-    .bind(tenant).first().catch(() => null);
+  const done = await env.DB.prepare("SELECT 1 FROM invite_mail WHERE tenant = ? AND template = ? AND status <> 'failed' LIMIT 1")
+    .bind(tenant, template).first().catch(() => null);
   if (done) {
     say(JSON.stringify({ event: "account_mail_relay", tenant, result: "already_sent" }));
     return reply(200, { ok: true, result: "already_sent" });
   }
   if (sendingOff(env)) return reply(503, { ok: false, result: "sending_off" });
   const f = body.fields || {};
+  const fields = Object.fromEntries(TEMPLATES[template].fields.map((k) => [k, f[k]]));   // only the template's own fields
   let res;
   try {
-    res = await sendTemplate(env, { template: "loaded", to: body.to, tenant, nowMs, fetchImpl: context.mailFetch || fetch, say,
-      fields: { first_name: f.first_name, start_date: f.start_date, dashboard_link: f.dashboard_link } });
+    res = await sendTemplate(env, { template, to: body.to, tenant, nowMs, fetchImpl: context.mailFetch || fetch, say, fields });
   } catch (e) {
     if (e instanceof MailError && e.code !== "off") {          // round 3: every refusal of the content is a 400, never retried
       say(JSON.stringify({ event: "account_mail_relay", tenant, result: e.code }));

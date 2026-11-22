@@ -27,7 +27,7 @@ import { BUILD_STEPS, deleteLink, linksFor, NOTE_WORDS, provisionFor, readLink, 
 export const INVITE_EMAIL_SUBJECT = TEMPLATES.invite.subject;
 export const INVITE_EMAIL_TEMPLATE = TEMPLATES.invite.body;
 const MAIL_LABEL = { invite: "Invite email", reminder_day3: "Day-3 reminder", reminder_day10: "Day-10 reminder",
-  loaded: "\"You're loaded\" email" };
+  loaded: "\"You're loaded\" email", texts_mac: "Texts email (Mac)", texts_android: "Texts email (Android)" };
 const SENT_FLASH = { ok: "Invite email sent.", reminder: "Reminder sent.", notdue: "Not sent: no reminder is due for this request.", off: "Not sent: sending is off. Use Copy below.",
   host: "Not sent: that link is for another server (this request's slug is on a different host). Nothing was sent.",
   link: "Not sent: that is not an owner link (https://<server>.bervo.ai/set-password?t=…). Nothing was sent.",
