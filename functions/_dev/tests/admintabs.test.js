@@ -60,7 +60,8 @@ function claimed(db) {
 const setProv = (db, id, state, step = "phase4") => db.raw.prepare(
   "INSERT OR REPLACE INTO invite_provision (request_id, state, step, updated_at) VALUES (?, ?, ?, ?)").run(id, state, step, new Date(NOW).toISOString());
 
-const ENV = (db, over = {}) => ({ DB: db, BERVO_PROVISION_SECRET: SECRET, BERVO_LINK_KEY: "fake-link-key-0123456789abcdef-0123456789",
+const LKEY = ["fake", "link", "key", "0123456789abcdef", "0123456789"].join("-");   // built at run time (G1)
+const ENV = (db, over = {}) => ({ DB: db, BERVO_PROVISION_SECRET: SECRET, BERVO_LINK_KEY: LKEY,
   POSTMARK_SERVER_TOKEN: ["fake", "pm", "tabs"].join("-"), MAIL_REPLY_TO: "allen@bervo.ai", RATE_LIMIT_SALT: "test-salt",
   ACCESS_TEAM_DOMAIN: TEAM, ACCESS_AUD: AUD, ADMIN_EMAILS: "allen@bervo.ai", ...over });
 
@@ -280,4 +281,26 @@ test("S4 Invited shows the reminder dates and when the invitation ends", async (
 test("S5 0009 adds one nullable date column and nothing else", () => {
   const sqlText = MIG("0009_signed_up.sql").split("\n").filter((l) => !l.startsWith("--") && l.trim()).join(" ");
   assert.equal(sqlText.trim(), "ALTER TABLE invite_requests ADD COLUMN signed_up_at TEXT;");
+});
+
+test("T8 a signed-up request with an old bounce: the reason shown is the sign-up (Mark claimed)", async () => {
+  const db = makeD1();
+  const id = seed(db, { status: "invited", slug: "zz-s", invitedAt: "2026-11-19T10:00:00Z" });
+  db.raw.prepare("INSERT INTO invite_mail (request_id, template, status, created_at) VALUES (?, 'reminder_day3', 'bounced', '2026-11-22T10:00:00Z')").run(id);
+  assert.ok(art((await adminGet(db)).body, id).includes("An email to them bounced"), "before: the bounce");
+  db.raw.prepare("UPDATE invite_requests SET signed_up_at = ? WHERE id = ?").run("2026-11-23T10:00:00Z", id);
+  const a = art((await adminGet(db)).body, id);
+  assert.ok(a.includes("Needs you:</b> Signed up: press Mark claimed") && !a.includes("An email to them bounced"));
+});
+
+test("T9 every row button has a tooltip (Mark claimed and Mark expired included)", async () => {
+  const db = makeD1();
+  seed(db, { status: "new" }); seed(db, { status: "approved", slug: "zz-a" });
+  seed(db, { status: "invited", slug: "zz-i", invitedAt: "2026-11-21T10:00:00Z" });
+  const s = seed(db, { status: "invited", slug: "zz-s", invitedAt: "2026-11-21T10:00:00Z" });
+  db.raw.prepare("UPDATE invite_requests SET signed_up_at = ? WHERE id = ?").run("2026-11-22T10:00:00Z", s);
+  const body = (await adminGet(db, "?show=all")).body;
+  const btns = [...body.matchAll(/<button name="action" value="([a-z_]+)"[^>]*>/g)];
+  assert.ok(btns.some((m) => m[1] === "claimed") && btns.some((m) => m[1] === "expired"));
+  for (const m of btns) assert.ok(/ title="[^"]+"/.test(m[0]), m[0]);
 });

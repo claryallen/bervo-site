@@ -211,13 +211,13 @@ export function needsYou(r, prov, mails = []) {
   if (stage === "built") return "Server ready: send the invite email.";
   if (r.status === "approved" && prov && prov.state === "failed") return `Server build failed at ${prov.step || "an unknown step"}: press Retry.`;
   if (r.status === "approved" && prov && prov.state === "stopped") return "Server build stopped: approve it again to continue, or tear the server down.";
+  if (stage === "signed_up") return "Signed up: press Mark claimed once they are set up.";   // beats an old bounce
   if (r.status === "approved" || r.status === "invited") {
     const list = mails || [];
     if (list.some((m) => m.status === "bounced" || m.status === "complained"))
       return "An email to them bounced: check the address, then send the invite yourself.";
     if (list.length && list[0].status === "failed") return "The last email was not sent (Postmark did not take it): try again, or send it yourself.";
   }
-  if (stage === "signed_up") return "Signed up: press Mark claimed once they are set up.";
   return "";
 }
 
@@ -282,8 +282,10 @@ function renderRow(r, mails = [], mailOff = null, flash = "", nowMs = Date.now()
         : "Decline this request for now. You can approve it later."));
   if (TRANSITIONS.invited.from.includes(r.status) && !autoSend) actions.push(btnT("invited", "Mark invited",
     "Use this only if you sent the invite yourself (by copying the email below). Send invite email marks it invited for you."));
-  if (TRANSITIONS.claimed.from.includes(r.status) && !r.signed_up_at) actions.push(btn("claimed", "Mark claimed (trims this request)"));
-  if (TRANSITIONS.expired.from.includes(r.status)) actions.push(btn("expired", "Mark expired"));
+  if (TRANSITIONS.claimed.from.includes(r.status) && !r.signed_up_at) actions.push(btnT("claimed", "Mark claimed (trims this request)",
+    "Use this once the customer is live: the request is trimmed to its number, cohort, plan and dates."));
+  if (TRANSITIONS.expired.from.includes(r.status)) actions.push(btnT("expired", "Mark expired",
+    "The invitation ran out unused. The request is deleted 90 days later."));
   if (r.status === "claimed") {
     return `<article class="req" id="r${e(r.id)}"><h2>#${e(r.id)} · <span class="status s-claimed">claimed</span></h2>
 <p>Customer is live; this request was trimmed to its number, cohort, plan and dates.</p>
