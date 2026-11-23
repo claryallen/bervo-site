@@ -1126,3 +1126,50 @@ test("AS11 Approve only with a build record: ready/failed keep the earlier slug 
   await adminPost(db, { id: "2", action: "approve_only" }, { jwt });
   assert.deepEqual([rows(db)[1].status, rows(db)[1].slug], ["approved", null]);
 });
+
+// ---------- CR-AUTOSLUG.1 fix round 2: a request with a build record keeps its earlier slug ----------
+test("AS12 with a build record: no editable Address code box (plain text + hidden field); a forged different code is refused before any UPDATE; the same code is accepted", async () => {
+  const db = await seeded();
+  db.raw.exec(PROV_SQL());
+  const jwt = await makeJwt({});
+  for (const st of ["ready", "failed", "stopped", "queued", "waiting_cap", "building"]) {
+    db.raw.prepare("UPDATE invite_requests SET status = 'not_now', slug = 'k7m2qx' WHERE id = 1").run();
+    setProv(db, 1, st);
+    const art = addressBox((await adminGet(db, { jwt, query: "?show=not_now" })).body, 1).art;
+    assert.ok(!/<input name="slug"/.test(art), st + ": no editable box");
+    assert.ok(art.includes('<input type="hidden" name="slug" value="k7m2qx">'), st + ": hidden field with the earlier slug");
+    assert.ok(art.includes("Address code: <b>k7m2qx</b>.bervo.ai"), st + ": shown as plain text");
+    const before = rows(db)[0];
+    const forged = await adminPost(db, { id: "1", action: "approve_build", slug: "p3rvqm" }, { jwt });
+    assert.equal(forged.location, "/admin/invites?sent=code_locked&r=1#r1", st);
+    assert.deepEqual(rows(db)[0], before, st + ": nothing changed");
+    const legacy = await adminPost(db, { id: "1", action: "approve", slug: "p3rvqm" }, { jwt });
+    assert.equal(legacy.location, "/admin/invites?sent=code_locked&r=1#r1", st + ": a plain approve with another code too");
+    const same = await adminPost(db, { id: "1", action: "approve_build", slug: "k7m2qx" }, { jwt });
+    assert.equal(same.location, "/admin/invites#r1", st);
+    assert.deepEqual([rows(db)[0].status, rows(db)[0].slug], ["approved", "k7m2qx"], st + ": same code accepted");
+  }
+  const page = await adminGet(db, { jwt, query: "?sent=code_locked&r=1" });
+  assert.ok(page.body.includes("Approve and build can only use that code."));
+  // no build record: the box stays editable and a different code is accepted
+  db.raw.prepare("UPDATE invite_requests SET status = 'not_now', slug = 'oldslg' WHERE id = 2").run();
+  assert.ok(/<input name="slug"[^>]*value="oldslg"/.test(addressBox((await adminGet(db, { jwt, query: "?show=not_now" })).body, 2).art));
+  await adminPost(db, { id: "2", action: "approve_build", slug: "newslg" }, { jwt });
+  assert.deepEqual([rows(db)[1].status, rows(db)[1].slug], ["approved", "newslg"]);
+});
+
+test("AS13 the UPDATE itself requires the earlier slug for a request with a build record (the slug changed between the check and the write)", async () => {
+  const db = await seeded();
+  db.raw.exec(PROV_SQL());
+  const jwt = await makeJwt({});
+  db.raw.prepare("UPDATE invite_requests SET status = 'not_now', slug = 'k7m2qx' WHERE id = 1").run();
+  setProv(db, 1, "stopped");
+  const realPrepare = db.prepare.bind(db);
+  db.prepare = (q) => {
+    if (q.startsWith("UPDATE invite_requests SET status = ?")) db.raw.prepare("UPDATE invite_requests SET slug = 'zzzzzz' WHERE id = 1").run();
+    return realPrepare(q);
+  };
+  const r = await adminPost(db, { id: "1", action: "approve_build", slug: "k7m2qx" }, { jwt });
+  assert.equal(r.location, "/admin/invites?sent=code_locked&r=1#r1");
+  assert.equal(rows(db)[0].status, "not_now", "not approved: the UPDATE matched no row");
+});

@@ -47,6 +47,7 @@ const SENT_FLASH = { ok: "Invite email sent.", reminder: "Reminder sent.", notdu
   code_invalid: "Not approved: an address code is lowercase letters, digits and hyphens, starts with a letter or digit, and is at most 31 characters.",
   code_reserved: "Not approved: that address code is a reserved name. Type another, or reload the page for a new one.",
   code_taken: "Not approved: that address code is already used by another request or server. Type another, or reload the page for a new one.",
+  code_locked: "Not approved: this request already has a server build under its earlier address code, so Approve and build can only use that code.",
   only_building: "Not approved: this request's server build was started earlier and would continue once approved. Press Approve and build to continue it, or leave it at Not now.",
   retry_noslug: "Not retried: this request has no address code, so the Mini would never pick the build up. Press Not now, then Approve and build with a code." };
 
@@ -219,7 +220,13 @@ ${r.approved_at ? `<dt>Approved</dt><dd>${fmt(r.approved_at)}</dd>` : ""}${r.inv
   // page view); Allen may type over it.
   const boxValue = r.slug || code || "";
   const codeTip = `${boxValue || "<code>"}.bervo.ai, made up automatically. Type over it for a special case.`;
-  const slugField = r.status === "new" || r.status === "not_now"
+  // Fix round 2: a request with a build record keeps its earlier slug (a profile, maybe a server, carries that name):
+  // shown as plain text, posted as a hidden field, refused by the server if changed.
+  const locked = !!(prov && r.slug);
+  const slugField = (r.status === "new" || r.status === "not_now") && locked
+    ? `<p class="locked" title="${e(`${r.slug}.bervo.ai was set when this request's server build started; it cannot change now.`)}">Address code: <b>${e(r.slug)}</b>.bervo.ai (set when the build started; cannot change)</p>
+<input type="hidden" name="slug" value="${e(r.slug)}">`
+    : r.status === "new" || r.status === "not_now"
     ? `<label title="${e(codeTip)}">Address code <input name="slug" maxlength="31" pattern="[a-z0-9][a-z0-9\\-]{0,30}" autocomplete="off" spellcheck="false" title="${e(codeTip)}" value="${e(boxValue)}"></label>` : "";
   return `<article class="req" id="r${e(r.id)}">
 <h2>#${e(r.id)} · ${e(r.first_name)} ${e(r.last_name)}${personal} <span class="status s-${e(r.status)}">${e(r.status)}</span></h2>
@@ -461,7 +468,7 @@ export async function onRequestPost(context) {
   const id = Number(form.get("id"));
   const action = String(form.get("action") || "");
   if (!Number.isInteger(id) || id < 1) return refused(400);
-  const row = await env.DB.prepare("SELECT id, status FROM invite_requests WHERE id = ?").bind(id).first();
+  const row = await env.DB.prepare("SELECT id, status, slug FROM invite_requests WHERE id = ?").bind(id).first();
   if (!row) return refused(404);
   const nowIso = new Date(context.nowMs ?? Date.now()).toISOString();
   if (action === "send_invite") return sendInvite(context, env, id, form, context.nowMs ?? Date.now());
@@ -499,16 +506,21 @@ export async function onRequestPost(context) {
   if (!t.from.includes(row.status)) return redirect(`/admin/invites#r${id}`);   // stale page: no change
   let slug = null;
   let keepSlug = false;
-  if (kind === "approve_only") {
-    let prov = null;
+  let prov = null;
+  if (kind === "approve_only" || kind === "approve_build") {
     try { prov = await env.DB.prepare("SELECT state FROM invite_provision WHERE request_id = ?").bind(id).first(); }
     catch { /* no 0007 table yet */ }
+  }
+  // Fix round 2: with a build record, Approve and build uses the earlier slug only.
+  const lockedSlug = prov && row.slug ? row.slug : null;
+  if (kind === "approve_only") {
     const mode = approveOnlyMode({}, prov);
     if (mode === null) return redirect(`/admin/invites?sent=only_building&r=${id}#r${id}`);
     keepSlug = mode === "keep";
   }
   if (kind === "approve_build") {
     const s = String(form.get("slug") || "").trim().toLowerCase();
+    if (lockedSlug && s !== lockedSlug) return redirect(`/admin/invites?sent=code_locked&r=${id}#r${id}`);
     const why = addressProblem(s);
     if (why) return redirect(`/admin/invites?sent=code_${why}&r=${id}#r${id}`);
     if (await addressTaken(env.DB, s, id)) return redirect(`/admin/invites?sent=code_taken&r=${id}#r${id}`);
@@ -521,12 +533,13 @@ export async function onRequestPost(context) {
   // and a not-now request with a slug was then built anyway); with a finished/failed build record it keeps the slug.
   // Approve and build sets the code only if no other request took it meanwhile.
   if (t === TRANSITIONS.approve && !keepSlug) { sets.push("slug = ?"); args.push(slug); }
-  const guard = slug ? " AND NOT EXISTS (SELECT 1 FROM invite_requests o WHERE o.slug = ? AND o.id <> ?)" : "";
+  const guard = (slug ? " AND NOT EXISTS (SELECT 1 FROM invite_requests o WHERE o.slug = ? AND o.id <> ?)" : "") +
+    (slug && lockedSlug ? " AND slug = ?" : "");
   const res = await env.DB.prepare(`UPDATE invite_requests SET ${sets.join(", ")} WHERE id = ? AND status = ?${guard}`)
-    .bind(...args, id, row.status, ...(slug ? [slug, id] : [])).run();
+    .bind(...args, id, row.status, ...(slug ? [slug, id] : []), ...(slug && lockedSlug ? [lockedSlug] : [])).run();
   if (slug && res?.meta && res.meta.changes === 0) {
     const now = await env.DB.prepare("SELECT status FROM invite_requests WHERE id = ?").bind(id).first();
-    if (now && now.status === row.status) return redirect(`/admin/invites?sent=code_taken&r=${id}#r${id}`);
+    if (now && now.status === row.status) return redirect(`/admin/invites?sent=${lockedSlug ? "code_locked" : "code_taken"}&r=${id}#r${id}`);
   }
   if (t.to !== "approved" && t.to !== "invited") {
     // CR-AUTOPROVISION.1: a delivered link never outlives an open request.
