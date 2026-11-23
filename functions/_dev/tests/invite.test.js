@@ -1059,3 +1059,70 @@ test("AS8 a page loaded before this change (plain 'approve') keeps its meaning: 
   assert.equal((await adminPost(db, { id: "1", action: "approve_build", slug: "p3rvqm" }, { jwt })).location, "/admin/invites#r1");
   assert.equal(rows(db)[0].slug, "k7m2qx", "an approved request is not re-approved");
 });
+
+// ---------- CR-AUTOSLUG.1 fix round ----------
+test("AS9 Enter in the Address code box never builds: the form's first submit button is a disabled guard; Approve only precedes Approve and build; the nonce script blocks Enter too", async () => {
+  const db = await seeded();
+  const page = await adminGet(db, { jwt: await makeJwt({}) });
+  const { art } = addressBox(page.body, 1);
+  const form = art.split('<form method="post" action="/admin/invites" class="act">')[1].split("</form>")[0];
+  const firstSubmit = form.match(/<button[^>]*type="submit"[^>]*>/)[0];
+  assert.ok(/\bdisabled\b/.test(firstSubmit) && /\bhidden\b/.test(firstSubmit) && !/name="action"/.test(firstSubmit),
+    "the default button (implicit submission) is disabled and carries no action: " + firstSubmit);
+  assert.ok(form.indexOf('value="approve_only"') < form.indexOf('value="approve_build"'), "Approve only comes first");
+  assert.ok(page.body.includes(`document.querySelectorAll('input[name="slug"]')`) && page.body.includes('ev.key === "Enter"'),
+    "second guard in the nonce script");
+  assert.equal((page.body.match(/<script/g) || []).length, 1, "still only the nonce script");
+});
+
+const PROV_SQL = () => readFileSync(path.join(ROOT, "functions/_dev/migrations/0007_provisioning.sql"), "utf8");
+const setProv = (db, id, state, step = "phase4") => db.raw.prepare(
+  "INSERT OR REPLACE INTO invite_provision (request_id, state, step, updated_at) VALUES (?, ?, ?, ?)").run(id, state, step, new Date(NOW).toISOString());
+
+test("AS10 Retry: not shown and refused when the request has no slug (it would sit queued forever); works with a slug", async () => {
+  const db = await seeded();
+  db.raw.exec(PROV_SQL());
+  const jwt = await makeJwt({});
+  db.raw.prepare("UPDATE invite_requests SET status = 'approved', slug = NULL WHERE id = 1").run();
+  db.raw.prepare("UPDATE invite_requests SET status = 'approved', slug = 'k7m2qx' WHERE id = 2").run();
+  setProv(db, 1, "failed"); setProv(db, 2, "failed");
+  const page = await adminGet(db, { jwt });
+  assert.ok(!addressBox(page.body, 1).art.includes('value="retry_build"'), "no Retry without a slug");
+  assert.ok(addressBox(page.body, 2).art.includes('value="retry_build"'), "Retry with a slug");
+  const r1 = await adminPost(db, { id: "1", action: "retry_build" }, { jwt });
+  assert.equal(r1.location, "/admin/invites?sent=retry_noslug&r=1#r1");
+  assert.equal(db.raw.prepare("SELECT state FROM invite_provision WHERE request_id = 1").get().state, "failed", "stays failed");
+  const r2 = await adminPost(db, { id: "2", action: "retry_build" }, { jwt });
+  assert.equal(r2.location, "/admin/invites?sent=retried&r=2#r2");
+  assert.equal(db.raw.prepare("SELECT state FROM invite_provision WHERE request_id = 2").get().state, "queued");
+});
+
+test("AS11 Approve only with a build record: ready/failed keep the earlier slug (tooltip says so); queued/waiting_cap/stopped/building refuse and hide the button", async () => {
+  const db = await seeded();
+  db.raw.exec(PROV_SQL());
+  const jwt = await makeJwt({});
+  for (const st of ["ready", "failed"]) {
+    db.raw.prepare("UPDATE invite_requests SET status = 'not_now', slug = 'k7m2qx' WHERE id = 1").run();
+    setProv(db, 1, st);
+    const art = addressBox((await adminGet(db, { jwt, query: "?show=not_now" })).body, 1).art;
+    assert.ok(art.includes("It keeps its earlier address code (k7m2qx)"), st + ": tooltip");
+    assert.ok(!art.includes("then Approve and build"), st + ": no 'Not now, then Approve and build' advice");
+    const r = await adminPost(db, { id: "1", action: "approve_only", slug: "" }, { jwt });
+    assert.equal(r.location, "/admin/invites#r1", st);
+    assert.deepEqual([rows(db)[0].status, rows(db)[0].slug], ["approved", "k7m2qx"], st + ": slug kept");
+  }
+  for (const st of ["queued", "waiting_cap", "stopped", "building"]) {
+    db.raw.prepare("UPDATE invite_requests SET status = 'not_now', slug = 'k7m2qx' WHERE id = 1").run();
+    setProv(db, 1, st);
+    const art = addressBox((await adminGet(db, { jwt, query: "?show=not_now" })).body, 1).art;
+    assert.ok(!art.includes('value="approve_only"'), st + ": Approve only not offered");
+    assert.ok(art.includes("continue its server build at k7m2qx.bervo.ai"), st + ": Approve and build says it continues");
+    const r = await adminPost(db, { id: "1", action: "approve_only", slug: "" }, { jwt });
+    assert.equal(r.location, "/admin/invites?sent=only_building&r=1#r1", st);
+    assert.deepEqual([rows(db)[0].status, rows(db)[0].slug], ["not_now", "k7m2qx"], st + ": nothing changed");
+  }
+  // no build record: Approve only still clears
+  db.raw.prepare("UPDATE invite_requests SET status = 'not_now', slug = 'oldslg' WHERE id = 2").run();
+  await adminPost(db, { id: "2", action: "approve_only" }, { jwt });
+  assert.deepEqual([rows(db)[1].status, rows(db)[1].slug], ["approved", null]);
+});

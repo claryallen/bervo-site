@@ -46,7 +46,9 @@ const SENT_FLASH = { ok: "Invite email sent.", reminder: "Reminder sent.", notdu
   code_empty: "Not approved: Approve and build needs an address code in the box. Type one, or reload the page for a new one. To approve without building a server, press Approve only.",
   code_invalid: "Not approved: an address code is lowercase letters, digits and hyphens, starts with a letter or digit, and is at most 31 characters.",
   code_reserved: "Not approved: that address code is a reserved name. Type another, or reload the page for a new one.",
-  code_taken: "Not approved: that address code is already used by another request or server. Type another, or reload the page for a new one." };
+  code_taken: "Not approved: that address code is already used by another request or server. Type another, or reload the page for a new one.",
+  only_building: "Not approved: this request's server build was started earlier and would continue once approved. Press Approve and build to continue it, or leave it at Not now.",
+  retry_noslug: "Not retried: this request has no address code, so the Mini would never pick the build up. Press Not now, then Approve and build with a code." };
 
 const TRANSITIONS = {
   approve: { to: "approved", from: ["new", "not_now"], stamp: "approved_at" },
@@ -130,6 +132,18 @@ ${mailOff ? `<p class="off">Sending is off (${e(mailOff)}).</p>` : `<form method
 </form>`}</div>`;
 }
 
+// CR-AUTOSLUG.1 fix round: what "Approve only" may do for this request.
+//   "clear": no build record -> approve with no slug, nothing is built.
+//   "keep":  a build record that the picker never resumes on its own (ready, failed): the earlier slug and record
+//            are kept (a server or its profile may exist under that name), nothing more is built.
+//   null:    a build record the picker WOULD resume once approved (queued, waiting_cap, stopped, building): keeping
+//            the slug would build and clearing it would orphan the build, so Approve only is not offered (refused).
+const RESUMED_STATES = ["queued", "waiting_cap", "stopped", "building"];
+function approveOnlyMode(r, prov) {
+  if (!prov) return "clear";
+  return RESUMED_STATES.includes(prov.state) ? null : "keep";
+}
+
 // The automatic build (CR-AUTOPROVISION.1): its state, Retry when it failed, and the delivered invite link.
 const STATE_WORDS = { queued: "queued (the Mini picks it up within 5 minutes)", ready: "ready", waiting_cap: "waiting: daily cap (runs when a slot frees up)" };
 function renderBuild(r, prov, links = {}, mailOff = null) {
@@ -149,7 +163,9 @@ function renderBuild(r, prov, links = {}, mailOff = null) {
   } else {
     line = e(STATE_WORDS[prov.state] || prov.state);
   }
-  const retry = prov && prov.state === "failed" ? `<form method="post" action="/admin/invites" class="act"><input type="hidden" name="id" value="${e(r.id)}">
+  // CR-AUTOSLUG.1 fix round: no Retry without a slug (the picker only builds approved requests with one, so a retried
+  // build would sit "queued" forever).
+  const retry = prov && prov.state === "failed" && r.slug ? `<form method="post" action="/admin/invites" class="act"><input type="hidden" name="id" value="${e(r.id)}">
 <button name="action" value="retry_build" type="submit">Retry</button> (continues from the failed step)</form>` : "";
   const inv = links.invite;
   const send = inv ? `<p class="ready"><b>Invite link ready</b> (made by the Mini; expires ${fmt(inv)}).</p>
@@ -174,10 +190,19 @@ function renderRow(r, mails = [], mailOff = null, flash = "", nowMs = Date.now()
   if (TRANSITIONS.approve.from.includes(r.status)) {
     // CR-AUTOSLUG.1 (Allen 11-23): two buttons. Approve and build uses the address code in the box (the Mini's picker
     // builds it); Approve only approves with no address code, so nothing is built (the old empty-box behavior).
+    // Approve only comes FIRST: it is the form's default button for Enter if the disabled guard below were ever
+    // ignored, and it never builds.
+    const only = approveOnlyMode(r, prov);
+    if (only === "clear") {
+      actions.push(btnT("approve_only", "Approve only",
+        "Approve this request without building a server (no address code is kept). Build it by hand later, or press Not now and then Approve and build."));
+    } else if (only === "keep") {
+      actions.push(btnT("approve_only", "Approve only",
+        `Approve this request without building anything more. It keeps its earlier address code (${r.slug || "none"}) and its build record; a failed build stays failed until you press Retry.`));
+    }
     actions.push(btnT("approve_build", "Approve and build",
-      "Approve this request and build its server at the address code in the box. The Mini starts within 5 minutes."));
-    actions.push(btnT("approve_only", "Approve only",
-      "Approve this request without building a server (no address code is kept). Build it by hand later, or press Not now and then Approve and build."));
+      r.slug && prov ? `Approve this request and continue its server build at ${r.slug}.bervo.ai. The Mini picks it up within 5 minutes.`
+        : "Approve this request and build its server at the address code in the box. The Mini starts within 5 minutes."));
   }
   if (TRANSITIONS.not_now.from.includes(r.status)) actions.push(btn("not_now", "Not now"));
   if (TRANSITIONS.invited.from.includes(r.status)) actions.push(btn("invited", "Mark invited"));
@@ -217,6 +242,7 @@ ${r.invited_at ? `<dt>Invited</dt><dd>${fmt(r.invited_at)}</dd>` : ""}
 <h3>About them and their business</h3>
 <div class="about">${e(r.about)}</div>
 <form method="post" action="/admin/invites" class="act">
+<button type="submit" disabled hidden aria-hidden="true" tabindex="-1" class="enter-guard"></button>
 <input type="hidden" name="id" value="${e(r.id)}">
 <label>Note <textarea name="note" maxlength="2000" rows="2">${e(r.note || "")}</textarea></label>
 ${slugField}
@@ -306,6 +332,11 @@ ${renderServerMail(await serverMails(env.DB))}
 <script nonce="${nonce}">
 const TEMPLATES = { plain: ${JSON.stringify(INVITE_EMAIL_TEMPLATE).replace(/</g, "\\u003c")}, note: ${JSON.stringify(inviteBody("iphone", '["none"]')).replace(/</g, "\\u003c")} };
 ${COPY_LINK_SCRIPT}
+// CR-AUTOSLUG.1: Enter in the Address code box never submits (a second guard: the form's first submit button is a
+// disabled one, so implicit submission does nothing even without this script).
+for (const box of document.querySelectorAll('input[name="slug"]')) {
+  box.addEventListener("keydown", (ev) => { if (ev.key === "Enter") ev.preventDefault(); });
+}
 for (const box of document.querySelectorAll(".copy")) {
   const link = box.querySelector(".link"), mail = box.querySelector(".mail"), done = box.querySelector(".copied");
   const fill = () => { mail.value = TEMPLATES[box.dataset.variant || "plain"].split("{first_name}").join(box.dataset.first).split("{link}").join(link.value.trim() ? friendlyFromDirect(link.value.trim()) : "[paste the owner link above]"); };
@@ -443,9 +474,12 @@ export async function onRequestPost(context) {
   }
   if (action === "retry_build") {
     // failed -> queued: the picker claims it again and new_customer.sh resumes at the failed step.
+    const hasSlug = await env.DB.prepare("SELECT 1 AS x FROM invite_requests WHERE id = ? AND slug IS NOT NULL").bind(id).first();
+    if (!hasSlug) return redirect(`/admin/invites?sent=retry_noslug&r=${id}#r${id}`);
     try {
-      await env.DB.prepare("UPDATE invite_provision SET state = 'queued', retry_requested_at = ?, updated_at = ? WHERE request_id = ? AND state = 'failed'")
-        .bind(nowIso, nowIso, id).run();
+      await env.DB.prepare("UPDATE invite_provision SET state = 'queued', retry_requested_at = ?, updated_at = ? WHERE request_id = ? AND state = 'failed' " +
+        "AND EXISTS (SELECT 1 FROM invite_requests WHERE id = ? AND slug IS NOT NULL)")
+        .bind(nowIso, nowIso, id, id).run();
     } catch { /* no 0007 table yet */ }
     return redirect(`/admin/invites?sent=retried&r=${id}#r${id}`);
   }
@@ -464,6 +498,15 @@ export async function onRequestPost(context) {
   if (!t) return refused(400);
   if (!t.from.includes(row.status)) return redirect(`/admin/invites#r${id}`);   // stale page: no change
   let slug = null;
+  let keepSlug = false;
+  if (kind === "approve_only") {
+    let prov = null;
+    try { prov = await env.DB.prepare("SELECT state FROM invite_provision WHERE request_id = ?").bind(id).first(); }
+    catch { /* no 0007 table yet */ }
+    const mode = approveOnlyMode({}, prov);
+    if (mode === null) return redirect(`/admin/invites?sent=only_building&r=${id}#r${id}`);
+    keepSlug = mode === "keep";
+  }
   if (kind === "approve_build") {
     const s = String(form.get("slug") || "").trim().toLowerCase();
     const why = addressProblem(s);
@@ -474,9 +517,10 @@ export async function onRequestPost(context) {
   const sets = t.trim ? ["status = ?", "status_changed_at = ?", TRIM_SET] : ["status = ?", "status_changed_at = ?", "note = ?"];
   const args = t.trim ? [t.to, nowIso] : [t.to, nowIso, note || null];
   if (t.stamp) { sets.push(`${t.stamp} = ?`); args.push(nowIso); }
-  // Approve only clears any earlier slug, so nothing is built (the old COALESCE kept it, and a not-now request with a
-  // slug was then built anyway). Approve and build sets the code only if no other request took it meanwhile.
-  if (t === TRANSITIONS.approve) { sets.push("slug = ?"); args.push(slug); }
+  // Approve only clears any earlier slug when there is no build record, so nothing is built (the old COALESCE kept it,
+  // and a not-now request with a slug was then built anyway); with a finished/failed build record it keeps the slug.
+  // Approve and build sets the code only if no other request took it meanwhile.
+  if (t === TRANSITIONS.approve && !keepSlug) { sets.push("slug = ?"); args.push(slug); }
   const guard = slug ? " AND NOT EXISTS (SELECT 1 FROM invite_requests o WHERE o.slug = ? AND o.id <> ?)" : "";
   const res = await env.DB.prepare(`UPDATE invite_requests SET ${sets.join(", ")} WHERE id = ? AND status = ?${guard}`)
     .bind(...args, id, row.status, ...(slug ? [slug, id] : [])).run();
