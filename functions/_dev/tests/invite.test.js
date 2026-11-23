@@ -520,7 +520,7 @@ test("bidi, zero-width and other format characters are stripped from every text 
 test("non-site files live under functions/ (Pages does not serve that directory); nothing extra at the root", () => {
   const root = readdirSync(ROOT).filter((n) => !n.startsWith(".git"));
   const allowed = new Set(["404.html", "_headers", "_redirects", "brand", "download", "fonts", "functions", "index.html", "invite-thanks.html",
-    "invite.html", "invite.js", "invite-thanks.js", "privacy.html", "site.js", "terms.html", ".well-known", "go.js"]);
+    "invite.html", "invite.js", "invite-thanks.js", "privacy.html", "site.js", "terms.html", ".well-known", "go.js", "theme.js"]);
   assert.deepEqual(root.filter((n) => !allowed.has(n)), [], "unexpected files at the served root");
   for (const f of ["functions/_lib/invites.js", "functions/_dev/tests/invite.test.js"]) {
     const src = readFileSync(path.join(ROOT, f), "utf8");
@@ -698,9 +698,10 @@ test("/invite and /invite-thanks: only same-origin script files, no inline scrip
   for (const f of ["invite.html", "invite-thanks.html"]) {
     const html = readFileSync(path.join(ROOT, f), "utf8");
     const tags = [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/g)];
-    assert.equal(tags.length, 1, f);
-    assert.match(tags[0][1], /^ src="\/invite(-thanks)?\.js(\?v=\d+)?"$/, f);   // ?v=N: cache-busting version only
-    assert.equal(tags[0][2].trim(), "", f + ": no inline code");
+    assert.equal(tags.length, 2, f);   // CR-SITEDARK.1: /theme.js in <head> (saved light/dark choice) + the page's own script
+    assert.match(tags[0][1], /^ src="\/theme\.js"$/, f);
+    assert.match(tags[1][1], /^ src="\/invite(-thanks)?\.js(\?v=\d+)?"$/, f);   // ?v=N: cache-busting version only
+    assert.equal(tags[0][2].trim() + tags[1][2].trim(), "", f + ": no inline code");
     assert.ok(!/\son[a-z]+=/i.test(html), f + ": no inline event handlers");
     assert.ok(!/javascript:/i.test(html), f);
   }

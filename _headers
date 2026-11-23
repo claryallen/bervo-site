@@ -25,6 +25,20 @@
 /site.js
   Cache-Control: no-cache
 
+# CR-SITEDARK.1: /theme.js carries the saved light/dark choice (key "bervo-theme", set by the home page toggle) onto
+# Terms, Privacy, /invite and /invite-thanks. The site-wide policy stays script-free; Terms and Privacy get their own
+# block below (same shape as /invite-thanks). The 404 page has no script (its path is any path), so it follows the device only.
+/terms
+  ! Content-Security-Policy
+  Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
+
+/privacy
+  ! Content-Security-Policy
+  Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
+
+/theme.js
+  Cache-Control: no-cache
+
 # /invite only (CR-INVITEFLOW.1): the form posts to itself and loads Cloudflare Turnstile. The "!" line removes
 # the site-wide policy above for this path (Pages would otherwise send both, and a browser enforces both).
 /invite
