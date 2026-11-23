@@ -323,7 +323,7 @@ async function adminPost(db, fields, env = ENV(db)) {
     body: new URLSearchParams(fields).toString() }), env, fetchImpl: certsFetch, nowMs: NOW });
   return { status: res.status, location: res.headers.get("Location") };
 }
-const ONBOARD_TIP = "This customer is in use. Erases their form details and dates on bervo.ai; keeps their first name and last initial, Bervo address, email address, plan and request date.";
+const ONBOARD_TIP = "This customer is onboarded. Erases their form details and dates on bervo.ai; keeps their first name and last initial, Bervo address, email address, plan and request date.";
 const TRIMMED = ["first_name", "last_name", "email", "has_assistant", "email_providers", "other_email", "computers", "phone",
   "heard_from", "heard_detail", "timezone", "about", "referral", "slug", "note"];
 const ERASED_DATES = ["approved_at", "invited_at", "signed_up_at", "status_changed_at"];
@@ -373,7 +373,7 @@ test("O2 Mark onboarded (0009 + 0010): keeps ONLY id, status, plan, the request 
   const a = art(page, id);
   assert.ok(a.includes(`<p class="sum">Ashley C · reh1120.bervo.ai · requested 2026-11-20 10:00 UTC</p>`), a);
   assert.ok(a.includes("#" + id + " · Ashley C <span class=\"status s-onboarded\">onboarded</span>"));
-  assert.ok(a.includes("kept: their first name and last initial, Bervo address, email address, plan and request date."), "the notice lists only what is kept");
+  assert.ok(a.includes(`<p class="notice">${ONBOARD_TIP}</p>`), "the notice: the tooltip's words, listing only what is kept");
   assert.ok(a.includes("<dl><dt>Requested</dt><dd>2026-11-20 10:00 UTC</dd><dt>Plan</dt><dd>Dedicated $99/mo</dd></dl>"), "no other date, no cohort");
   for (const w of ["Onboarded</dt>", "Signed up", "Approved", "Invited", "Cohort", "onboarded 20", "signed up 20", " UTC UTC", "> UTC"]) assert.ok(!a.includes(w), w);
   const sum = a.match(/<p class="sum">.*?<\/p>/)[0], h2 = a.match(/<h2>.*?<\/h2>/)[0];
@@ -397,7 +397,7 @@ test("O3 older databases: before 0010 the trim + date erase run without kept fie
     assert.deepEqual([count(db, "invite_mail", id), count(db, "invite_provision", id), count(db, "invite_links", id)], [0, 0, 0], `${label}: records deleted`);
     const a = art((await adminGet(db, "?show=onboarded")).body, id);
     assert.ok(a.includes("(trimmed)") && a.includes('<p class="sum">requested 2026-11-20 10:00 UTC</p>') && !a.includes("Email address")
-      && a.includes("kept: the plan and the request date."), `${label}: ${a}`);
+      && a.includes('<p class="notice">This customer is onboarded. Erases their form details and dates on bervo.ai; keeps their plan and request date.</p>'), `${label}: ${a}`);
   }
 });
 
@@ -518,4 +518,37 @@ test("O9 kept_name is the FIRST WORD of the first name + the last initial (a ful
   await adminPost(db, { id: String(id), action: "claimed" });
   assert.equal(row(db, id).kept_name, "Ashley C");
   assert.ok(!(await adminGet(db, "?show=onboarded")).body.includes("Clary"));
+});
+
+test("O10 0011 (the one-time sweep of requests onboarded under the old trim): dates erased, cohort reset, their records deleted; others untouched; kept_* stay NULL; safe to run twice", () => {
+  const db = makeD1();
+  const SWEEP = MIG("0011_sweep_claimed.sql");
+  // an old-trim onboarded row: dates, cohort private, email/build/link records
+  const old = claimed(db);
+  db.raw.prepare("UPDATE invite_requests SET approved_at = '2026-11-02T10:00:00Z', invited_at = '2026-11-03T10:00:00Z', signed_up_at = '2026-11-04T10:00:00Z', cohort = 'private' WHERE id = ?").run(old);
+  records(db, old);
+  const open = seed(db, { status: "invited", slug: "zz-open", invitedAt: "2026-11-20T11:00:00Z" });
+  records(db, open);
+  db.raw.prepare("INSERT INTO invite_mail (tenant, template, status, created_at) VALUES ('zz-t', 'loaded', 'sent', '2026-11-22T10:00:00Z')").run();
+  const openBefore = row(db, open);
+  // the preview SELECTs (comment lines starting "-- SELECT") run and return counts only
+  const previews = SWEEP.split("\n").filter((l) => l.startsWith("-- SELECT")).map((l) => l.slice(3));
+  assert.equal(previews.length, 2);
+  const p1 = db.raw.prepare(previews[0]).get(), p2 = db.raw.prepare(previews[1]).get();
+  assert.deepEqual({ ...p1 }, { onboarded: 1, with_dates_or_cohort: 1 });
+  assert.deepEqual({ ...p2 }, { email_records: 1, build_records: 1, links: 1 });
+  db.raw.exec(SWEEP);
+  const r = row(db, old);
+  for (const c of ["approved_at", "invited_at", "signed_up_at", "status_changed_at", "kept_name", "kept_host", "kept_email"]) assert.equal(r[c], null, c);
+  assert.deepEqual([r.status, r.cohort, r.plan, r.created_at], ["claimed", "public", "private", "2026-11-01T10:00:00Z"]);
+  assert.deepEqual([count(db, "invite_mail", old), count(db, "invite_provision", old), count(db, "invite_links", old)], [0, 0, 0]);
+  assert.deepEqual(row(db, open), openBefore, "an open request untouched");
+  assert.deepEqual([count(db, "invite_mail", open), count(db, "invite_provision", open), count(db, "invite_links", open)], [1, 1, 1]);
+  assert.equal(Number(db.raw.prepare("SELECT count(*) AS n FROM invite_mail WHERE tenant = 'zz-t'").get().n), 1, "server emails untouched (their own 90-day rule)");
+  const after = JSON.stringify(db.raw.prepare("SELECT * FROM invite_requests ORDER BY id").all());
+  db.raw.exec(SWEEP);
+  assert.equal(JSON.stringify(db.raw.prepare("SELECT * FROM invite_requests ORDER BY id").all()), after, "a second run changes nothing");
+  assert.deepEqual({ ...db.raw.prepare(previews[0]).get() }, { onboarded: 1, with_dates_or_cohort: 0 });
+  const stmts = SWEEP.split("\n").filter((l) => l.trim() && !l.startsWith("--"));
+  assert.ok(stmts.every((l) => /^(UPDATE|DELETE|  )/.test(l)), "only UPDATE / DELETE statements; no schema change");
 });

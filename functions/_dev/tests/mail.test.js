@@ -637,17 +637,26 @@ test("M19b relay (CR-POSTREH1121.1): texts_mac / texts_android send once each pe
   assert.ok(!kept.toLowerCase().includes("pat"), "no address or name kept");
 });
 
-test("M21 retention: a server's 'loaded' row keeps its hash 90 days, then only the once-only record stays", async () => {
+test("M21 retention (CR-ONBOARDEDTAB.1 fix round 3, privacy 1.15 draft): every email record is deleted 90 days after it was sent; until then a server's second 'loaded' is refused here", async () => {
   const db = makeD1();
   await relayPost(db, await signed(LOADED()));
-  db.raw.prepare("UPDATE invite_mail SET created_at = '2026-08-01T00:00:00Z'").run();
+  const id = seed(db);
+  await adminPost(db, { id: String(id), action: "send_invite", link: LINK });
+  assert.deepEqual(mailRows(db).map((m) => m.tenant || "request").sort(), ["request", "zz-test"]);
+  // 89 days after sending: both kept, and the once-per-server rule still answers here
+  db.raw.prepare("UPDATE invite_mail SET created_at = ?").run(new Date(NOW - 89 * 86400000).toISOString());
   await pruneOld(db, NOW);
-  const row = mailRows(db)[0];
-  assert.equal(row.address_hash, null);
-  assert.equal(row.tenant, "zz-test");
+  assert.equal(mailRows(db).length, 2, "89 days: kept");
   const calls = [];
   assert.equal((await relayPost(db, await signed(LOADED()), { calls })).body.result, "already_sent");
   assert.equal(calls.length, 0);
+  // 91 days: both deleted, nothing kept on bervo.ai (no marker); the request itself is untouched (it has its own rule)
+  db.raw.prepare("UPDATE invite_mail SET created_at = ?").run(new Date(NOW - 91 * 86400000).toISOString());
+  await pruneOld(db, NOW);
+  assert.deepEqual(mailRows(db), [], "91 days: every record gone");
+  assert.equal(request(db, id).status, "invited");
+  const tables = db.raw.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all().map((t) => t.name);
+  assert.ok(!tables.some((t) => /sent|marker/i.test(t)), "no marker table");
 });
 
 test("M22 the router's own signing code (node:crypto createHmac, bervo_router/index.mjs) is accepted here", async () => {

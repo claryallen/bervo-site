@@ -6,8 +6,10 @@ export const ABOUT_MAX = 1000;                 // "Tell us about you and your bu
 export const RATE_LIMIT_PER_DAY = 5;           // per salted IP hash per UTC day (spec §A)
 export const RATE_KEEP_DAYS = 7;               // salted hashes are dropped after 7 days (spec §A)
 export const NOT_NOW_KEEP_DAYS = 90;           // "not now", expired and unanswered (new/approved, never invited) requests are deleted 90 days after their last status change (Allen 11-11)
-// Allen 11-10 ("Yes, 90 days"): once the customer is live (claimed) a request keeps only id, cohort, status and
-// dates, plus the plan they chose (like cohort). TRIM_SET nulls everything else; the schema's table CHECK refuses a claimed row that still holds any of it.
+// Allen 11-10 ("Yes, 90 days") and CR-ONBOARDEDTAB.1 (11-23): an onboarded (stored 'claimed') request keeps only id,
+// status, plan, created_at / privacy_agreed_at (the request date) and kept_name / kept_host / kept_email. TRIM_SET nulls
+// the form fields (the schema's table CHECK refuses a claimed row that still holds any of them); ONBOARD_ERASE_SET and
+// ONBOARD_ERASE_SIGNED_UP erase the other dates and reset cohort (admin/invites.js onboardBatch).
 export const TRIMMED_COLUMNS = ["first_name", "last_name", "email", "has_assistant",
   "email_providers", "other_email", "computers", "phone", "heard_from", "heard_detail", "timezone", "about", "referral", "slug", "note"];
 export const OTHER_EMAIL_MAX = 40;             // "What other email account(s)?" (shown when Other is ticked; 0003 migration)
@@ -176,10 +178,14 @@ export async function pruneOld(db, nowMs) {
   await db.prepare("DELETE FROM invite_requests WHERE status IN ('new', 'approved', 'not_now', 'expired') AND status_changed_at < ?")
     .bind(cutoff).run();
   // CR-WELCOMEEMAIL.1: an email record goes with its request (and clears its address hash once trimmed).
+  // CR-ONBOARDEDTAB.1 fix round 3 (privacy 1.15 draft: "we delete each record 90 days after the email is sent"): every
+  // email record, account emails by server (loaded / texts_*) and request emails alike, is deleted 90 days after its
+  // created_at (the send time). Nothing on bervo.ai keeps a marker after that. A second account email for the same
+  // server is still prevented by the customer server (_meta.load_email_at / _meta.texts_email_at, written once) and by
+  // the router (account_mail.json, per tenant and template); see the build report.
   try {
     await db.prepare("DELETE FROM invite_mail WHERE request_id IS NOT NULL AND request_id NOT IN (SELECT id FROM invite_requests)").run();
-    await db.prepare("UPDATE invite_mail SET address_hash = NULL WHERE tenant IS NOT NULL AND address_hash IS NOT NULL AND created_at < ?")
-      .bind(cutoff).run();
+    await db.prepare("DELETE FROM invite_mail WHERE created_at < ?").bind(cutoff).run();
     await db.prepare("UPDATE invite_mail SET address_hash = NULL WHERE address_hash IS NOT NULL AND request_id IN " +
       "(SELECT id FROM invite_requests WHERE status = 'claimed')").run();
   } catch { /* the 0002 table is not there yet */ }

@@ -72,8 +72,10 @@ const TRANSITIONS = {
   approve: { to: "approved", from: ["new", "not_now"], stamp: "approved_at" },
   not_now: { to: "not_now", from: ["new", "approved"], stamp: null },
   invited: { to: "invited", from: ["approved"], stamp: "invited_at" },
-  // Mark onboarded (CR-ONBOARDEDTAB.1; the action and stored value stay "claimed"): the customer is in use; the row is
-  // trimmed to id, cohort, plan, status and dates in the same UPDATE (Allen 11-10), keeping First L and the address (0010).
+  // Mark onboarded (CR-ONBOARDEDTAB.1; the action and stored value stay "claimed"): the row keeps ONLY id, status, plan,
+  // created_at / privacy_agreed_at (the request date) and kept_name / kept_host / kept_email (0010); every form field and
+  // every other date is erased, cohort is reset to 'public', and its email/build/link records are deleted, in one batch
+  // (onboardBatch).
   claimed: { to: "claimed", from: ["invited"], stamp: null, trim: true },
   // The invitation ran out unused (14 days): deleted 90 days later with the not-now rows.
   expired: { to: "expired", from: ["invited"], stamp: null },
@@ -206,7 +208,7 @@ const OPEN_ANSWERS_TABS = new Set(["needs", "new"]);
 const STAGE_WORDS = { new: "new", approved: "approved", built: "built", invited: "invited", signed_up: "signed up",
   not_now: "not now", expired: "expired", onboarded: "onboarded" };
 // Allen 11-23 added "keep email too" after the spec's wording; the tooltip names it.
-const ONBOARD_TIP = "This customer is in use. Erases their form details and dates on bervo.ai; keeps their first name and last initial, Bervo address, email address, plan and request date.";
+const ONBOARD_TIP = "This customer is onboarded. Erases their form details and dates on bervo.ai; keeps their first name and last initial, Bervo address, email address, plan and request date.";
 
 // approved: not built yet (no build, queued, waiting, building, failed, stopped); built: approved and the build is
 // ready (the invite is not sent: sending marks it invited); signed up: invited and the owner set a password (0009);
@@ -312,7 +314,8 @@ function renderRow(r, mails = [], mailOff = null, flash = "", nowMs = Date.now()
     // before fix round 2 that still holds them.
     return `<article class="req" id="r${e(r.id)}"><h2>#${e(r.id)} · ${r.kept_name ? e(r.kept_name) : "(trimmed)"} <span class="status s-onboarded">onboarded</span></h2>
 <p class="sum">${onboardedLine(r)}</p>
-<p>In use. The form details and dates were erased on bervo.ai; ${r.kept_name || r.kept_host || r.kept_email ? "kept: their first name and last initial, Bervo address, email address, plan and request date" : "kept: the plan and the request date"}.</p>
+<p class="notice">${r.kept_name || r.kept_host || r.kept_email ? e(ONBOARD_TIP)
+    : "This customer is onboarded. Erases their form details and dates on bervo.ai; keeps their plan and request date."}</p>
 ${r.kept_email ? `<details class="answers"><summary>Email address</summary><p>${em(r.kept_email)}</p></details>` : ""}
 <dl><dt>Requested</dt><dd>${fmt(r.created_at)}</dd><dt>Plan</dt><dd>${e(PLAN_NAMES[r.plan] || r.plan)}</dd></dl></article>`;
   }
