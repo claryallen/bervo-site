@@ -16,6 +16,7 @@
     {"name": "failed Send, then Copy + Mark invited a day later: invited_at", "request": {"status": "invited", "invited_at": "2026-11-13T15:00:00.000Z"}, "mails": [{"template": "invite", "status": "failed", "at_days": 0}], "age": 3.5, "due": null},
     {"name": "failed Send, then Copy + Mark invited a day later, day 4.1", "request": {"status": "invited", "invited_at": "2026-11-13T15:00:00.000Z"}, "mails": [{"template": "invite", "status": "failed", "at_days": 0}], "age": 4.1, "due": "reminder_day3"},
     {"name": "no invite and no invited_at", "request": {"status": "invited", "invited_at": null}, "mails": [{"template": "invite", "status": "failed", "at_days": 0}], "age": 3, "due": null},
-    {"name": "re-sent invite moves the clock", "request": {"status": "invited", "invited_at": "2026-11-12T15:00:00.000Z"}, "mails": [{"template": "invite", "status": "sent", "at_days": 0}, {"template": "invite", "status": "sent", "at_days": 2}], "age": 4, "due": null}
+    {"name": "re-sent invite moves the clock", "request": {"status": "invited", "invited_at": "2026-11-12T15:00:00.000Z"}, "mails": [{"template": "invite", "status": "sent", "at_days": 0}, {"template": "invite", "status": "sent", "at_days": 2}], "age": 4, "due": null},
+    {"name": "signed up (CR-SIGNUPSIGNAL.1): no reminder", "request": {"status": "invited", "invited_at": "2026-11-12T15:00:00.000Z", "signed_up_at": "2026-11-13T15:00:00.000Z"}, "mails": [{"template": "invite", "status": "delivered", "at_days": 0}], "age": 3.5, "due": null}
   ]
 }

@@ -111,7 +111,7 @@ const certsFetch = async (url) => {
 };
 const ADMIN_ENV = (db, over = {}) => ({ ...MAIL_ENV(db), ACCESS_TEAM_DOMAIN: TEAM, ACCESS_AUD: AUD, ADMIN_EMAILS: "allen@bervo.ai", ...over });
 
-async function adminGet(db, { env, query = "" } = {}) {
+async function adminGet(db, { env, query = "?show=all" } = {}) {   // CR-ADMINTABS.1: every card (the old default listed every open one)
   _resetAccessKeyCache();
   const res = await admin.onRequestGet({ request: new Request(`${ORIGIN}/admin/invites${query}`, { headers: { "Cf-Access-Jwt-Assertion": await makeJwt() } }),
     env: env || ADMIN_ENV(db), fetchImpl: certsFetch, nowMs: NOW });
@@ -573,8 +573,8 @@ test("M19 relay: a signed 'loaded' request sends the approved email once per ser
   // a different server is its own once
   await relayPost(db, await signed(LOADED({ tenant: "zz-other" })), { calls });
   assert.equal(calls.length, 2);
-  // shown on the admin page
-  const page = await adminGet(db);
+  // shown on the admin page (CR-ADMINTABS.1: its own tab, Server emails)
+  const page = await adminGet(db, { query: "?show=server_emails" });
   assert.match(page.body, /Account emails by server/);
   assert.match(page.body, /zz-test · &quot;You&#39;re loaded&quot; email: <span class="ms ms-sent">sent/);
 });

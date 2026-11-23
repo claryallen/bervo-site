@@ -249,7 +249,7 @@ function certsFetch(calls = []) {
 }
 const ADMIN_ENV = (db) => ({ DB: db, ACCESS_TEAM_DOMAIN: TEAM, ACCESS_AUD: AUD, ADMIN_EMAILS: "allen@bervo.ai" });
 
-async function adminGet(db, { jwt, env, query = "", calls } = {}) {
+async function adminGet(db, { jwt, env, query = "?show=all", calls } = {}) {   // CR-ADMINTABS.1: every card (the old default listed every open one)
   _resetAccessKeyCache();
   const headers = jwt ? { "Cf-Access-Jwt-Assertion": jwt } : {};
   const res = await admin.onRequestGet({ request: new Request(`${ORIGIN}/admin/invites${query}`, { headers }), env: env || ADMIN_ENV(db), fetchImpl: certsFetch(calls), nowMs: NOW });
@@ -1191,7 +1191,8 @@ test("SD1 paste-form Send: dimmed while the Mini builds (tooltip says so); other
   }
   for (const st of ["ready", "failed"]) {
     setProv(db, 1, st);
-    const b = sendBtn((await adminGet(db, { jwt, env, query: "?show=approved" })).body);
+    // CR-ADMINTABS.1: a ready build is under Built, a failed one under Approved
+    const b = sendBtn((await adminGet(db, { jwt, env, query: st === "ready" ? "?show=built" : "?show=approved" })).body);
     assert.ok(b.includes(" disabled") && b.includes('data-building="0"') && b.includes("Paste the owner link first."), st + ": dimmed until pasted");
   }
   const page = (await adminGet(db, { jwt, env, query: "?show=approved" })).body;

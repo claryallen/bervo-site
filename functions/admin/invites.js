@@ -19,6 +19,13 @@
 // the server when the page is drawn: this page's CSP allows no script but its own nonce one). "Approve and build"
 // approves with the code in the box (refused with a message when it is empty, invalid, reserved or already used);
 // "Approve only" approves with no slug, so the picker builds nothing.
+// CR-ADMINTABS.1 (Allen 11-23): tabs by stage (TABS, stageOf, needsYou, inTab): Needs you (default; old ?show=open
+// links land here) · New · Approved (not built yet) · Built (ready, invite not sent) · Invited · Signed up (0009) · Not
+// now · Expired · Claimed · All · Server emails. Each card: a summary line, then the one action it needs, then the row
+// buttons, with the form answers, about and note folded (open on New and Needs you); the copy-it-yourself box is always
+// folded under "Send it yourself instead". A button's answer (?sent=..&r=<id>) opens the tab its request is in now.
+// CR-SIGNUPSIGNAL.1: "Signed up <time>" from invite_requests.signed_up_at (written by /api/provision-state, action
+// signed_up, from the Mini's picker); before migration 0009 the column is absent and nothing shows as signed up.
 import { checkAccess, escapeHtml, pruneOld, redirect, stripFormatChars, TRIM_SET } from "../_lib/invites.js";
 import { friendlyFromDirect, friendlyLink, GO_DEMO_HOSTS, GO_LABEL_RE, GO_PAGES, GO_RESERVED } from "../_lib/golink.js";
 import { inviteBody, linkMatchesSlug, needsIphoneNoMacNote, MailError, reminderDue, reminderExpiryDate, sendingOff, sendTemplate, TEMPLATES } from "../_lib/mail.js";
@@ -167,23 +174,75 @@ function renderBuild(r, prov, links = {}, mailOff = null) {
   }
   // CR-AUTOSLUG.1 fix round: no Retry without a slug (the picker only builds approved requests with one, so a retried
   // build would sit "queued" forever).
-  const retry = prov && prov.state === "failed" && r.slug ? `<form method="post" action="/admin/invites" class="act"><input type="hidden" name="id" value="${e(r.id)}">
-<button name="action" value="retry_build" type="submit">Retry</button> (continues from the failed step)</form>` : "";
-  const inv = links.invite;
-  const send = inv ? `<p class="ready"><b>Invite link ready</b> (made by the Mini; expires ${fmt(inv)}).</p>
-${mailOff ? `<p class="off">Sending is off (${e(mailOff)}); the link waits here until sending is on, or it expires.</p>`
-    : `<form method="post" action="/admin/invites" class="send"><input type="hidden" name="id" value="${e(r.id)}">
-<button name="action" value="send_invite_stored" type="submit">Send invite email</button> to ${em(r.email)} with the delivered link</form>`}` : "";
+  // CR-ADMINTABS.1: Retry and the delivered-link Send are drawn first in the card (renderRow), not here.
   let codes = [];
   try { codes = prov && prov.notes ? JSON.parse(prov.notes) : []; } catch { codes = []; }
   // Allen 11-23: the pronoun default is not shown (pronouns are set per customer; CR-PRONOUNASK.1 asks at setup).
   const shown = Array.isArray(codes) ? codes.filter((c) => Object.hasOwn(NOTE_WORDS, c) && !HIDDEN_NOTES.has(c)) : [];
   const notes = shown.length ? `<p>Set up with these defaults (check before Send):</p><ul class="notes">${
     shown.map((c) => `<li>${e(NOTE_WORDS[c])}</li>`).join("")}</ul>` : "";
-  return `<div class="build"><p>Server: <span class="bs bs-${e(prov ? prov.state : "none")}">${line}</span>${prov && prov.finished_at ? ` · ${fmt(prov.finished_at)}` : ""}</p>${notes}${retry}${send}</div>`;
+  return `<div class="build"><p>Server: <span class="bs bs-${e(prov ? prov.state : "none")}">${line}</span>${prov && prov.finished_at ? ` · ${fmt(prov.finished_at)}` : ""}</p>${notes}</div>`;
 }
 
-function renderRow(r, mails = [], mailOff = null, flash = "", nowMs = Date.now(), prov = null, links = {}, code = "") {
+// CR-ADMINTABS.1 (Allen 11-23): a request's life as tabs. stageOf() is the one tab a request lives in; needsYou() says
+// why (if at all) it is also under Needs you, the default tab. Both read only what the page already loads.
+export const TABS = [["needs", "Needs you"], ["new", "New"], ["approved", "Approved"], ["built", "Built"], ["invited", "Invited"],
+  ["signed_up", "Signed up"], ["not_now", "Not now"], ["expired", "Expired"], ["claimed", "Claimed"], ["all", "All"],
+  ["server_emails", "Server emails"]];
+const TAB_KEYS = TABS.map(([k]) => k);
+const TAB_ALIASES = { open: "needs" };                    // old links: ?show=open
+const COMPACT_TABS = new Set(["not_now", "expired", "claimed", "all"]);
+const OPEN_ANSWERS_TABS = new Set(["needs", "new"]);
+const STAGE_WORDS = { new: "new", approved: "approved", built: "built", invited: "invited", signed_up: "signed up",
+  not_now: "not now", expired: "expired", claimed: "claimed" };
+
+// approved: not built yet (no build, queued, waiting, building, failed, stopped); built: approved and the build is
+// ready (the invite is not sent: sending marks it invited); signed up: invited and the owner set a password (0009).
+export function stageOf(r, prov) {
+  if (r.status === "approved") return prov && prov.state === "ready" ? "built" : "approved";
+  if (r.status === "invited") return r.signed_up_at ? "signed_up" : "invited";
+  return r.status;
+}
+
+// -> the reason this request needs Allen now, or "".
+export function needsYou(r, prov, mails = []) {
+  const stage = stageOf(r, prov);
+  if (stage === "new") return "New request: approve it, or press Not now.";
+  if (stage === "built") return "Server ready: send the invite email.";
+  if (r.status === "approved" && prov && prov.state === "failed") return `Server build failed at ${prov.step || "an unknown step"}: press Retry.`;
+  if (r.status === "approved" && prov && prov.state === "stopped") return "Server build stopped: approve it again to continue, or tear the server down.";
+  if (r.status === "approved" || r.status === "invited") {
+    const list = mails || [];
+    if (list.some((m) => m.status === "bounced" || m.status === "complained"))
+      return "An email to them bounced: check the address, then send the invite yourself.";
+    if (list.length && list[0].status === "failed") return "The last email was not sent (Postmark did not take it): try again, or send it yourself.";
+  }
+  if (stage === "signed_up") return "Signed up: press Mark claimed once they are set up.";
+  return "";
+}
+
+export function inTab(tab, r, prov, mails) {
+  if (tab === "all") return true;
+  if (tab === "needs") return !!needsYou(r, prov, mails);
+  return stageOf(r, prov) === tab;
+}
+
+// Invited: when the reminders fall and when the invitation ends (the same clock as reminderDue: the newest accepted
+// invite email, else invited_at).
+function renderTimeline(r, mails = []) {
+  if (r.status !== "invited") return "";
+  const invites = (mails || []).filter((m) => m.template === "invite" && m.status !== "failed");
+  const baseMs = invites.length ? Math.max(...invites.map((m) => Date.parse(m.created_at))) : Date.parse(r.invited_at || "");
+  if (!Number.isFinite(baseMs)) return "";
+  const at = (d) => fmt(new Date(baseMs + d * 86400000).toISOString());
+  const sent = (t) => (mails || []).some((m) => m.template === t && m.status !== "failed" && Date.parse(m.created_at) >= baseMs);
+  const last = invites.length ? [...invites].sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0] : null;
+  return `<p class="timeline">${last ? `Invite email: <span class="ms ms-${escapeHtml(last.status)}">${escapeHtml(last.status)}</span> · ` : ""}` +
+    `Day-3 reminder ${at(3)}${sent("reminder_day3") ? " (sent)" : ""} · Day-10 reminder ${at(10)}${sent("reminder_day10") ? " (sent)" : ""} · ` +
+    `Invitation ends ${at(14)}</p>`;
+}
+
+function renderRow(r, mails = [], mailOff = null, flash = "", nowMs = Date.now(), prov = null, links = {}, code = "", tab = "needs") {
   // Allen 11-23: the paste-form Send stays dimmed while the Mini builds (its link arrives as "Invite link ready"),
   // and otherwise until a link is pasted (the page script turns it on).
   const building = !!prov && !["ready", "failed", "stopped"].includes(prov.state) && !(links && links.invite);
@@ -193,6 +252,7 @@ function renderRow(r, mails = [], mailOff = null, flash = "", nowMs = Date.now()
     `<button name="action" value="${action}" type="submit">${label}</button>`;
   const btnT = (action, label, tip) =>
     `<button name="action" value="${action}" type="submit" title="${e(tip)}">${label}</button>`;
+  const stage = stageOf(r, prov);
   const actions = [];
   if (TRANSITIONS.approve.from.includes(r.status)) {
     // CR-AUTOSLUG.1 (Allen 11-23): two buttons. Approve and build uses the address code in the box (the Mini's picker
@@ -213,20 +273,23 @@ function renderRow(r, mails = [], mailOff = null, flash = "", nowMs = Date.now()
   }
   // Allen 11-23: every row button says what it does; Mark invited only where you would send by hand.
   const autoSend = !!(links && links.invite) && !mailOff;
+  // CR-ADMINTABS.1: Signed up puts Mark claimed first (it is the one button that request needs).
+  if (TRANSITIONS.claimed.from.includes(r.status) && r.signed_up_at) actions.push(btnT("claimed", "Mark claimed (trims this request)",
+    "They have signed up. Mark claimed once they are set up: the request is trimmed to its number, cohort, plan and dates."));
   if (TRANSITIONS.not_now.from.includes(r.status)) actions.push(btnT("not_now", "Not now",
     building ? "Withdraw this request. The server build stops at its next step; the server is kept (tear it down by hand if needed)."
       : prov ? "Decline or withdraw this request. Its server is kept (tear it down by hand if needed)."
         : "Decline this request for now. You can approve it later."));
   if (TRANSITIONS.invited.from.includes(r.status) && !autoSend) actions.push(btnT("invited", "Mark invited",
     "Use this only if you sent the invite yourself (by copying the email below). Send invite email marks it invited for you."));
-  if (TRANSITIONS.claimed.from.includes(r.status)) actions.push(btn("claimed", "Mark claimed (trims this request)"));
+  if (TRANSITIONS.claimed.from.includes(r.status) && !r.signed_up_at) actions.push(btn("claimed", "Mark claimed (trims this request)"));
   if (TRANSITIONS.expired.from.includes(r.status)) actions.push(btn("expired", "Mark expired"));
   if (r.status === "claimed") {
     return `<article class="req" id="r${e(r.id)}"><h2>#${e(r.id)} · <span class="status s-claimed">claimed</span></h2>
 <p>Customer is live; this request was trimmed to its number, cohort, plan and dates.</p>
 <dl><dt>Received</dt><dd>${fmt(r.created_at)}</dd><dt>Cohort</dt><dd>${e(r.cohort)}</dd><dt>Plan</dt><dd>${e(PLAN_NAMES[r.plan] || r.plan)}</dd>
 ${r.approved_at ? `<dt>Approved</dt><dd>${fmt(r.approved_at)}</dd>` : ""}${r.invited_at ? `<dt>Invited</dt><dd>${fmt(r.invited_at)}</dd>` : ""}
-<dt>Claimed</dt><dd>${fmt(r.status_changed_at)}</dd></dl></article>`;
+${r.signed_up_at ? `<dt>Signed up</dt><dd>${fmt(r.signed_up_at)}</dd>` : ""}<dt>Claimed</dt><dd>${fmt(r.status_changed_at)}</dd></dl></article>`;
   }
   // CR-AUTOSLUG.1: the box comes pre-filled (the request's own slug if it has one, else a fresh code made for this
   // page view); Allen may type over it.
@@ -240,8 +303,32 @@ ${r.approved_at ? `<dt>Approved</dt><dd>${fmt(r.approved_at)}</dd>` : ""}${r.inv
 <input type="hidden" name="slug" value="${e(r.slug)}">`
     : r.status === "new" || r.status === "not_now"
     ? `<label title="${e(codeTip)}">Address code <input name="slug" maxlength="31" pattern="[a-z0-9][a-z0-9\\-]{0,30}" autocomplete="off" spellcheck="false" title="${e(codeTip)}" value="${e(boxValue)}"></label>` : "";
+  // CR-ADMINTABS.1: the one thing this request needs goes first in the card: the delivered-link Send, or Retry.
+  const need = needsYou(r, prov, mails);
+  const inv = links && links.invite;
+  const sendFirst = inv && (r.status === "approved" || r.status === "invited") ? `<p class="ready"><b>Invite link ready</b> (made by the Mini; expires ${fmt(inv)}).</p>
+${mailOff ? `<p class="off">Sending is off (${e(mailOff)}); the link waits here until sending is on, or it expires.</p>`
+    : `<form method="post" action="/admin/invites" class="send"><input type="hidden" name="id" value="${e(r.id)}">
+<button name="action" value="send_invite_stored" type="submit" title="Send the invite email with the link the Mini made. It marks the request invited.">Send invite email</button> to ${em(r.email)} with the delivered link</form>`}` : "";
+  // CR-AUTOSLUG.1 fix round: no Retry without a slug (the picker only builds approved requests with one, so a retried
+  // build would sit "queued" forever).
+  const retryFirst = prov && prov.state === "failed" && r.slug ? `<form method="post" action="/admin/invites" class="act retry"><input type="hidden" name="id" value="${e(r.id)}">
+<button name="action" value="retry_build" type="submit" title="Queue the build again. The Mini picks it up within 5 minutes and continues from the failed step.">Retry</button> (continues from the failed step)</form>` : "";
+  const answersOpen = OPEN_ANSWERS_TABS.has(tab) ? " open" : "";
+  const summary = [e(PLAN_NAMES[r.plan] || r.plan), e(r.timezone || "time zone not sent"),
+    r.slug ? `${e(r.slug)}.bervo.ai` : "no address yet", `received ${fmt(r.created_at)}`,
+    r.signed_up_at ? `<b>Signed up ${fmt(r.signed_up_at)}</b>` : ""].filter(Boolean).join(" · ");
   return `<article class="req" id="r${e(r.id)}">
-<h2>#${e(r.id)} · ${e(r.first_name)} ${e(r.last_name)}${personal} <span class="status s-${e(r.status)}">${e(r.status)}</span></h2>
+<h2>#${e(r.id)} · ${e(r.first_name)} ${e(r.last_name)}${personal} <span class="status s-${e(stage)}">${e(STAGE_WORDS[stage] || r.status)}</span></h2>
+<p class="sum">${summary}</p>
+${need ? `<p class="need"><b>Needs you:</b> ${e(need)}</p>` : ""}
+${sendFirst}${retryFirst}
+<form method="post" action="/admin/invites" class="act">
+<button type="submit" disabled hidden aria-hidden="true" tabindex="-1" class="enter-guard"></button>
+<input type="hidden" name="id" value="${e(r.id)}">
+${slugField}
+<div class="buttons">${actions.join(" ")}</div>
+<details class="answers"${answersOpen}><summary>Form answers, about them, and your note</summary>
 <dl>
 <dt>Received</dt><dd>${fmt(r.created_at)}</dd>
 <dt>Email</dt><dd>${em(r.email)}</dd>
@@ -257,21 +344,20 @@ ${r.heard_from ? `<dt>How they heard</dt><dd>${e(HEARD_NAMES[r.heard_from] || r.
 ${r.slug ? `<dt>Slug</dt><dd>${e(r.slug)}</dd>` : ""}
 ${r.approved_at ? `<dt>Approved</dt><dd>${fmt(r.approved_at)}</dd>` : ""}
 ${r.invited_at ? `<dt>Invited</dt><dd>${fmt(r.invited_at)}</dd>` : ""}
+${r.signed_up_at ? `<dt>Signed up</dt><dd>${fmt(r.signed_up_at)}</dd>` : ""}
 </dl>
 <h3>About them and their business</h3>
 <div class="about">${e(r.about)}</div>
-<form method="post" action="/admin/invites" class="act">
-<button type="submit" disabled hidden aria-hidden="true" tabindex="-1" class="enter-guard"></button>
-<input type="hidden" name="id" value="${e(r.id)}">
 <label>Note <textarea name="note" maxlength="2000" rows="2">${e(r.note || "")}</textarea></label>
-${slugField}
-<div class="buttons">${actions.join(" ")} ${btnT("note", "Save note", "Save the note only; nothing else changes.")}</div>
+${btnT("note", "Save note", "Save the note only; nothing else changes.")}
+</details>
 </form>
 ${renderMail(mails)}
 ${flash ? `<p class="flash">${e(flash)}</p>` : ""}
 ${r.status === "approved" || r.status === "invited" || prov ? renderBuild(r, prov, links, mailOff) : ""}
+${renderTimeline(r, mails)}
 ${r.status === "invited" ? renderReminder(r, mails, mailOff, nowMs, links) : ""}
-${r.status === "approved" || r.status === "invited" ? `${autoSend ? `<details class="other"><summary>Use a different link instead, or copy the email to send yourself</summary>` : ""}<div class="copy" data-first="${e(r.first_name)}" data-variant="${needsIphoneNoMacNote(r.phone, r.computers) ? "note" : "plain"}">
+${r.status === "approved" || r.status === "invited" ? `<details class="other"><summary>Send it yourself instead</summary><div class="copy" data-first="${e(r.first_name)}" data-variant="${needsIphoneNoMacNote(r.phone, r.computers) ? "note" : "plain"}">
 <form method="post" action="/admin/invites" class="send">
 <input type="hidden" name="id" value="${e(r.id)}">
 <label>Owner link (paste it here) <input class="link" name="link" type="url" autocomplete="off" required></label>
@@ -280,9 +366,18 @@ ${mailOff ? `<p class="off">Sending is off (${e(mailOff)}). Copy the email below
 </form>
 <p>Subject: <b>${e(INVITE_EMAIL_SUBJECT)}</b></p>
 <textarea class="mail" readonly rows="12"></textarea>
-<button type="button" class="copybtn">Copy invite email</button> <span class="copied"></span>
-</div>${autoSend ? "</details>" : ""}` : ""}
+<button type="button" class="copybtn" title="Copy the invite email to paste into your own email program.">Copy invite email</button> <span class="copied"></span>
+</div></details>` : ""}
 </article>`;
+}
+
+// Not now / Expired / Claimed / All: one line per request; click it to open the full card.
+function renderCompact(r, prov, card) {
+  const e = escapeHtml;
+  const stage = stageOf(r, prov);
+  const name = r.status === "claimed" ? "(trimmed)" : `${e(r.first_name)} ${e(r.last_name)}`;
+  return `<details class="row"><summary>#${e(r.id)} · ${name} · <span class="status s-${e(stage)}">${e(STAGE_WORDS[stage] || r.status)}</span> · ` +
+    `${e(PLAN_NAMES[r.plan] || r.plan)} · ${fmt(r.status_changed_at || r.created_at)}</summary>${card}</details>`;
 }
 
 // CR-LINKPREVIEW.1: the Copy box turns the pasted owner link into the same bervo.ai/go link the Send button's email
@@ -296,9 +391,6 @@ export const COPY_LINK_SCRIPT = [
   friendlyFromDirect.toString(),
 ].join("\n").replace(/<\//g, "<\\/");
 
-const FILTERS = { open: ["new", "approved", "invited"], new: ["new"], approved: ["approved"], invited: ["invited"],
-  not_now: ["not_now"], claimed: ["claimed"], expired: ["expired"], all: null };
-
 export async function onRequestGet(context) {
   const { request, env } = context;
   const auth = await checkAccess(request, env, context.fetchImpl || fetch, context.nowMs ?? Date.now());
@@ -308,14 +400,21 @@ export async function onRequestGet(context) {
   await pruneOld(env.DB, nowMs);
   const url = new URL(request.url);
   const mailOff = sendingOff(env);
-  const f = Object.hasOwn(FILTERS, url.searchParams.get("show") || "") ? url.searchParams.get("show") : "open";
-  const statuses = FILTERS[f];
-  const sql = "SELECT * FROM invite_requests" +
-    (statuses ? ` WHERE status IN (${statuses.map(() => "?").join(",")})` : "") + " ORDER BY id DESC LIMIT 300";
-  const { results } = await env.DB.prepare(sql).bind(...(statuses || [])).all();
-  const mails = await mailsFor(env.DB, results.map((r) => r.id));
-  const provs = await provisionFor(env.DB, results.map((r) => r.id));
-  const links = await linksFor(env.DB, results.map((r) => r.id));
+  // CR-ADMINTABS.1: every request is read (newest 300) so each tab and its count come from one rule (inTab).
+  const asked = url.searchParams.get("show") || "";
+  let f = TAB_KEYS.includes(asked) ? asked : TAB_ALIASES[asked] || "needs";
+  const { results: all } = await env.DB.prepare("SELECT * FROM invite_requests ORDER BY id DESC LIMIT 300").all();
+  const allIds = all.map((r) => r.id);
+  const mails = await mailsFor(env.DB, allIds);
+  const provs = await provisionFor(env.DB, allIds);
+  const links = await linksFor(env.DB, allIds);
+  const P = (r) => provs.get(r.id) || null;
+  const M = (r) => mails.get(r.id) || [];
+  // A button's answer (?sent=...&r=<id>) opens the tab its request is in now, so the message is never on a hidden card.
+  const flashRow = url.searchParams.get("r") && !TAB_KEYS.includes(asked) ? all.find((r) => r.id === Number(url.searchParams.get("r"))) : null;
+  if (flashRow && !inTab(f, flashRow, P(flashRow), M(flashRow))) f = stageOf(flashRow, P(flashRow));
+  const count = (k) => all.filter((r) => inTab(k, r, P(r), M(r))).length;
+  const results = f === "server_emails" ? [] : all.filter((r) => inTab(f, r, P(r), M(r)));
   const flashId = Number(url.searchParams.get("r"));
   const flash = Object.hasOwn(SENT_FLASH, url.searchParams.get("sent") || "") ? SENT_FLASH[url.searchParams.get("sent")] : "";
   // CR-AUTOSLUG.1: a fresh address code for each request that can be approved and has none yet; never one already in
@@ -330,8 +429,16 @@ export async function onRequestGet(context) {
     }
   }
   const nonce = [...crypto.getRandomValues(new Uint8Array(16))].map((b) => b.toString(16).padStart(2, "0")).join("");
-  const nav = Object.keys(FILTERS).map((k) =>
-    k === f ? `<b>${k}</b>` : `<a href="/admin/invites?show=${k}">${k}</a>`).join(" · ");
+  const nav = TABS.map(([k, label]) => {
+    const n = k === "server_emails" || k === "all" ? "" : ` (${count(k)})`;
+    return k === f ? `<b>${label}${n}</b>` : `<a href="/admin/invites?show=${k}">${label}${n}</a>`;
+  }).join(" · ");
+  const draw = (r) => {
+    const card = renderRow(r, M(r), mailOff, r.id === flashId ? flash : "", nowMs, P(r), links.get(r.id) || {}, codes.get(r.id) || "", f);
+    return COMPACT_TABS.has(f) ? renderCompact(r, P(r), card) : card;
+  };
+  const listHtml = f === "server_emails" ? (renderServerMail(await serverMails(env.DB)) || "<p>No account emails yet.</p>")
+    : results.length ? results.map(draw).join("\n") : "<p>None.</p>";
   const body = `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">
 <title>Invite requests · Bervo admin</title>
@@ -349,10 +456,13 @@ dl{display:grid;grid-template-columns:10rem 1fr;gap:.1rem .75rem;margin:.5rem 0}
 textarea,input{width:100%;box-sizing:border-box;font:inherit}label{display:block;margin:.4rem 0}.buttons{margin-top:.4rem}
 .copy{margin-top:.6rem;border-top:1px dashed var(--dash);padding-top:.5rem}
 .mail-log{margin:.4rem 0;padding-left:1.2rem}.ms{border-radius:4px;padding:0 .4em;background:var(--gray)}.ms-delivered{background:var(--green)}
-.ms-bounced,.ms-complained,.ms-failed{background:var(--red)}.build{margin:.5rem 0}.bs{border-radius:4px;padding:0 .4em;background:var(--gray)}.bs-ready{background:var(--green)}.bs-failed{background:var(--red)}.bs-waiting_cap{background:var(--yellow)}.bs-stopped{background:var(--red)}.ready{margin:.3rem 0}.remind{background:var(--remind);border-radius:6px;padding:.3rem .7rem;margin:.5rem 0}.flash{background:var(--yellow);border-radius:6px;padding:.3rem .6rem}.off{color:var(--off)}button:disabled{opacity:.45;cursor:not-allowed}details.other{margin-top:.6rem}details.other summary{cursor:pointer;color:var(--muted)}</style></head><body>
-<h1>Invite requests</h1><p>Signed in as ${em(auth.email)} · Show: ${nav}</p>
-${results.length ? results.map((r) => renderRow(r, mails.get(r.id), mailOff, r.id === flashId ? flash : "", nowMs, provs.get(r.id) || null, links.get(r.id) || {}, codes.get(r.id) || "")).join("\n") : "<p>None.</p>"}
-${renderServerMail(await serverMails(env.DB))}
+.ms-bounced,.ms-complained,.ms-failed{background:var(--red)}.build{margin:.5rem 0}.bs{border-radius:4px;padding:0 .4em;background:var(--gray)}.bs-ready{background:var(--green)}.bs-failed{background:var(--red)}.bs-waiting_cap{background:var(--yellow)}.bs-stopped{background:var(--red)}.ready{margin:.3rem 0}.remind{background:var(--remind);border-radius:6px;padding:.3rem .7rem;margin:.5rem 0}.flash{background:var(--yellow);border-radius:6px;padding:.3rem .6rem}.off{color:var(--off)}button:disabled{opacity:.45;cursor:not-allowed}details.other{margin-top:.6rem}details.other summary{cursor:pointer;color:var(--muted)}
+.tabs{margin:.5rem 0 1rem;line-height:1.9}.sum{margin:.2rem 0;color:var(--muted)}.sum b{color:var(--fg)}.need{background:var(--yellow);border-radius:6px;padding:.3rem .6rem;margin:.4rem 0}
+details.answers{margin:.5rem 0}details.answers summary,details.row summary{cursor:pointer}details.answers summary{color:var(--muted)}
+details.row{border:1px solid var(--line);border-radius:8px;padding:.4rem .8rem;margin:.4rem 0}details.row[open] .req{border:0;padding:0}
+.timeline{margin:.4rem 0}.s-built{background:var(--green)}.s-signed_up{background:var(--green)}.s-new{background:var(--blue)}</style></head><body>
+<h1>Invite requests</h1><p>Signed in as ${em(auth.email)}</p><nav class="tabs">${nav}</nav>
+${listHtml}
 <script nonce="${nonce}">
 // CR-ADMINDARK.1: the saved home-page light/dark choice (bervo-theme), if any; else the device setting.
 try { const t = window[["local", "Storage"].join("")].getItem("bervo-theme"); if (t === "dark" || t === "light") document.documentElement.setAttribute("data-theme", t); } catch (e) {}
@@ -385,13 +495,17 @@ for (const box of document.querySelectorAll(".copy")) {
 
 // invite_mail rows for these requests, newest first, as Map(id -> rows). An empty map when the 0002 table is not
 // there yet (the page keeps working; sending then fails closed and Copy remains).
+// CR-ADMINTABS.1: in chunks of 90 ids (D1 allows at most 100 bound parameters in one query; the page now reads every
+// request, up to 300).
 async function mailsFor(db, ids) {
   const out = new Map();
-  if (!ids.length) return out;
   try {
-    const { results } = await db.prepare(`SELECT * FROM invite_mail WHERE request_id IN (${ids.map(() => "?").join(",")}) ORDER BY id DESC`)
-      .bind(...ids).all();
-    for (const m of results) { if (!out.has(m.request_id)) out.set(m.request_id, []); out.get(m.request_id).push(m); }
+    for (let i = 0; i < ids.length; i += 90) {
+      const part = ids.slice(i, i + 90);
+      const { results } = await db.prepare(`SELECT * FROM invite_mail WHERE request_id IN (${part.map(() => "?").join(",")}) ORDER BY id DESC`)
+        .bind(...part).all();
+      for (const m of results) { if (!out.has(m.request_id)) out.set(m.request_id, []); out.get(m.request_id).push(m); }
+    }
   } catch { /* no invite_mail table yet */ }
   return out;
 }

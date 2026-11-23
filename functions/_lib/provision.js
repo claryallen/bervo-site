@@ -165,24 +165,29 @@ export async function deleteLink(db, requestId, kind) {
 }
 
 // For the admin page: Map(id -> provision row) and Map(id -> {kind: expires_at}). Never selects iv/ct.
+// CR-ADMINTABS.1: in chunks of 90 ids (D1 allows at most 100 bound parameters in one query).
 export async function provisionFor(db, ids) {
   const out = new Map();
-  if (!ids.length) return out;
   try {
-    const { results } = await db.prepare(`SELECT request_id, state, step, queued_at, started_at, finished_at, retry_requested_at, notes, updated_at ` +
-      `FROM invite_provision WHERE request_id IN (${ids.map(() => "?").join(",")})`).bind(...ids).all();
-    for (const r of results) out.set(r.request_id, r);
+    for (let i = 0; i < ids.length; i += 90) {
+      const part = ids.slice(i, i + 90);
+      const { results } = await db.prepare(`SELECT request_id, state, step, queued_at, started_at, finished_at, retry_requested_at, notes, updated_at ` +
+        `FROM invite_provision WHERE request_id IN (${part.map(() => "?").join(",")})`).bind(...part).all();
+      for (const r of results) out.set(r.request_id, r);
+    }
   } catch { /* no 0007 table yet */ }
   return out;
 }
 
 export async function linksFor(db, ids) {
   const out = new Map();
-  if (!ids.length) return out;
   try {
-    const { results } = await db.prepare(`SELECT request_id, kind, expires_at FROM invite_links WHERE request_id IN (${ids.map(() => "?").join(",")})`)
-      .bind(...ids).all();
-    for (const r of results) { if (!out.has(r.request_id)) out.set(r.request_id, {}); out.get(r.request_id)[r.kind] = r.expires_at; }
+    for (let i = 0; i < ids.length; i += 90) {
+      const part = ids.slice(i, i + 90);
+      const { results } = await db.prepare(`SELECT request_id, kind, expires_at FROM invite_links WHERE request_id IN (${part.map(() => "?").join(",")})`)
+        .bind(...part).all();
+      for (const r of results) { if (!out.has(r.request_id)) out.set(r.request_id, {}); out.get(r.request_id)[r.kind] = r.expires_at; }
+    }
   } catch { /* no 0007 table yet */ }
   return out;
 }

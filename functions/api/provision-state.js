@@ -13,11 +13,17 @@
 //   stopped     {request_id, run_id, step}   building -> stopped before <step>: the request was withdrawn (Not now)
 //                                             mid-build (fix round 1 item 3); approving it again makes it claimable
 //   notes       {request_id, run_id, codes}  the profile's unattended defaults as fixed codes (NOTE_CODES only)
+//   signed_up   {request_id}                 (CR-SIGNUPSIGNAL.1, Allen 11-23) the Mini saw the owner set a password on
+//                                             their server: invite_requests.signed_up_at, once, invited requests only.
+//                                             Run-independent (no run_id). Already recorded -> 200 "already". Needs
+//                                             migration 0009; before it the column is missing -> 503 not_configured
+//                                             (the Mini retries each run).
 // A failed row is never claimable: only the admin page's Retry (failed -> queued) makes it buildable again.
 // Signed like /api/account-mail with its own secret (BERVO_PROVISION_SECRET; 5 minutes; each signature once).
 import { MAX_BYTES, NOTE_CODES, reply, RUN_ID_RE, STEPS, verifySigned } from "../_lib/provision.js";
 
-const ACTIONS = ["claim", "step", "ready", "failed", "waiting_cap", "stopped", "notes"];
+const ACTIONS = ["claim", "step", "ready", "failed", "waiting_cap", "stopped", "notes", "signed_up"];
+const NO_RUN_ID = ["waiting_cap", "signed_up"];
 
 export async function onRequestPost(context) {
   const { request, env } = context;
@@ -36,7 +42,7 @@ export async function onRequestPost(context) {
   const step = body?.step;
   if (!ACTIONS.includes(action)) return reply(400, { ok: false, result: "bad_action" });
   if (!Number.isInteger(id) || id < 1) return reply(400, { ok: false, result: "bad_request_id" });
-  if (action !== "waiting_cap" && !(typeof runId === "string" && RUN_ID_RE.test(runId))) return reply(400, { ok: false, result: "bad_run_id" });
+  if (!NO_RUN_ID.includes(action) && !(typeof runId === "string" && RUN_ID_RE.test(runId))) return reply(400, { ok: false, result: "bad_run_id" });
   if ((action === "step" || action === "failed" || action === "stopped") && !STEPS.includes(step)) return reply(400, { ok: false, result: "bad_step" });
   const codes = body?.codes;
   if (action === "notes" && !(Array.isArray(codes) && codes.length <= 12 && codes.every((c) => NOTE_CODES.includes(c))))
@@ -45,6 +51,22 @@ export async function onRequestPost(context) {
   const now = new Date(nowMs).toISOString();
   const buildable = "EXISTS (SELECT 1 FROM invite_requests WHERE id = ? AND status = 'approved' AND slug IS NOT NULL)";
   let changes = 0;
+  if (action === "signed_up") {
+    let result;
+    try {
+      const r = await db.prepare("UPDATE invite_requests SET signed_up_at = ? WHERE id = ? AND status = 'invited' AND signed_up_at IS NULL")
+        .bind(now, id).run();
+      changes = Number(r?.meta?.changes ?? 0);
+      if (changes !== 1) {
+        const row = await db.prepare("SELECT signed_up_at FROM invite_requests WHERE id = ?").bind(id).first();
+        result = row && row.signed_up_at ? "already" : "not_allowed";
+      } else result = "recorded";
+    } catch {
+      return reply(503, { ok: false, result: "not_configured" });   // the 0009 column is missing
+    }
+    say(JSON.stringify({ event: "provision_state", request_id: id, action, step: null, result }));
+    return result === "not_allowed" ? reply(409, { ok: false, result }) : reply(200, { ok: true, result });
+  }
   try {
     if (action === "claim" || action === "waiting_cap") {
       await db.prepare("INSERT OR IGNORE INTO invite_provision (request_id, state, queued_at, updated_at) " +

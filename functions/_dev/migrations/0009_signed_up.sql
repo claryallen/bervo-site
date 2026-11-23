@@ -1,0 +1,11 @@
+-- CR-SIGNUPSIGNAL.1 (Allen 11-23, "can I receive a text each time a new user 'signs up'?"): when the owner of an
+-- invited request set their password, as the Mini's picker saw it (read-only check on their server) and reported
+-- through the signed /api/provision-state (action signed_up). A date only; no customer content.
+-- The admin page shows "Signed up <time>" and the request moves to the Signed up tab (and Needs you, for Mark claimed);
+-- the day-3/day-10 reminders stop. Kept when a claimed request is trimmed (it is a date, like approved_at).
+--
+-- Allen pastes this into the D1 console (production and preview databases) after 0008. The code works before it:
+-- without the column the page shows no sign-ups and the endpoint answers 503 not_configured (the Mini retries).
+-- NOT safe to run twice: a second run fails with "duplicate column name: signed_up_at" and changes nothing.
+-- Check first: SELECT sql FROM sqlite_master WHERE name='invite_requests' must not already list signed_up_at.
+ALTER TABLE invite_requests ADD COLUMN signed_up_at TEXT;

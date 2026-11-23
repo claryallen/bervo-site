@@ -389,6 +389,7 @@ export const REMINDER_DAYS = { reminder_day3: 3, reminder_day10: 10 };
 // 14-day link has not run out. No automatic resend of anything that failed.
 export function reminderDue(request, mails, nowMs) {
   if (!request || request.status !== "invited") return null;
+  if (request.signed_up_at) return null;                // CR-SIGNUPSIGNAL.1: the owner has set a password
   const list = mails || [];
   if (list.some((m) => m.status === "bounced" || m.status === "complained")) return null;
   const invites = list.filter((m) => m.template === "invite" && m.status !== "failed");

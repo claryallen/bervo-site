@@ -113,7 +113,7 @@ async function makeJwt(nowMs) {
   return `${h}.${p}.${b64u(sig)}`;
 }
 const certsFetch = async () => Response.json({ keys: [(await keys()).jwk] });
-async function adminGet(db, { env, nowMs = NOW, query = "" } = {}) {
+async function adminGet(db, { env, nowMs = NOW, query = "?show=all" } = {}) {   // CR-ADMINTABS.1: every card (the old default listed every open one)
   _resetAccessKeyCache();
   const res = await admin.onRequestGet({ request: new Request(`${ORIGIN}/admin/invites${query}`, { headers: { "Cf-Access-Jwt-Assertion": await makeJwt(nowMs) } }),
     env: env || ENV(db), fetchImpl: certsFetch, nowMs });
@@ -408,15 +408,18 @@ test("G2 migration: 0007 is the one and final shape (stopped + notes in the CREA
 });
 
 // ---------- Allen 11-23: one Send once the Mini's link is ready ----------
-test("SD2 with a delivered link: one live Send; the paste box and Copy fold under 'Use a different link instead'; no Mark invited; every row button has a tooltip", async () => {
+test("SD2 with a delivered link: one live Send, first in the card; the paste box and Copy always fold under 'Send it yourself instead' (CR-ADMINTABS.1); no Mark invited; every row button has a tooltip", async () => {
   const db = makeD1(); const id = seed(db);
+  const fold = '<details class="other"><summary>Send it yourself instead</summary><div class="copy"';
   const before = await adminGet(db);
-  assert.ok(before.includes('value="invited"') && !before.includes('<details class="other">'), "no link yet: Mark invited shown, nothing folded");
+  assert.ok(before.includes('value="invited"') && before.includes(fold), "no link yet: Mark invited shown; the paste box is folded anyway");
   await link(db, { request_id: id, kind: "invite", link: LINK });
   const page = await adminGet(db);
   assert.ok(page.includes('value="send_invite_stored"'), "the Mini's Send is there");
-  assert.ok(page.includes('<details class="other"><summary>Use a different link instead, or copy the email to send yourself</summary><div class="copy"'), "paste box + Copy folded");
-  assert.ok(page.indexOf('<details class="other">') < page.indexOf('value="send_invite"') && page.indexOf('value="send_invite"') < page.indexOf("</details>"), "the paste-box Send is inside the fold");
+  assert.ok(page.indexOf('value="send_invite_stored"') < page.indexOf('class="act">'), "first in the card, before the row buttons");
+  assert.ok(page.includes(fold), "paste box + Copy folded");
+  const inFold = page.slice(page.indexOf(fold)).split("</details>")[0];
+  assert.ok(inFold.includes('value="send_invite"') && inFold.includes('class="copybtn"'), "the paste-box Send and Copy are inside the fold");
   assert.ok(!page.includes('value="invited"'), "no Mark invited when Send can do it");
   assert.ok(/value="not_now" type="submit" title="[^"]+"/.test(page) && /value="note" type="submit" title="Save the note only; nothing else changes."/.test(page), "tooltips");
 });
