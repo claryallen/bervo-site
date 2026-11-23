@@ -1173,3 +1173,28 @@ test("AS13 the UPDATE itself requires the earlier slug for a request with a buil
   assert.equal(r.location, "/admin/invites?sent=code_locked&r=1#r1");
   assert.equal(rows(db)[0].status, "not_now", "not approved: the UPDATE matched no row");
 });
+
+// ---------- Allen 11-23: the paste-form Send is dimmed until it can be used ----------
+test("SD1 paste-form Send: dimmed while the Mini builds (tooltip says so); otherwise dimmed until a link is pasted; the page script turns it on", async () => {
+  const db = await seeded();
+  db.raw.exec(PROV_SQL());
+  const jwt = await makeJwt({});
+  db.raw.prepare("UPDATE invite_requests SET status = 'approved', slug = 'k7m2qx' WHERE id = 1").run();
+  // sending on, so the page draws Send (a made-up key, built at run time like mail.test.js's FAKE_TOKEN)
+  const env = { ...ADMIN_ENV(db), POSTMARK_SERVER_TOKEN: ["fake", "token", "sd1"].join("-"), MAIL_REPLY_TO: "allen@bervo.ai", RATE_LIMIT_SALT: "test-salt" };
+  const sendBtn = (body) => (addressBox(body, 1).art.match(/<button name="action" value="send_invite"[^>]*>/) || [""])[0];
+  for (const st of ["queued", "waiting_cap", "building"]) {
+    setProv(db, 1, st);
+    const b = sendBtn((await adminGet(db, { jwt, env, query: "?show=approved" })).body);
+    assert.ok(b.includes(" disabled") && b.includes('data-building="1"'), st + ": dimmed while building");
+    assert.ok(b.includes("Waits for the server to be ready. The Mini fills in the link."), st + ": tooltip");
+  }
+  for (const st of ["ready", "failed"]) {
+    setProv(db, 1, st);
+    const b = sendBtn((await adminGet(db, { jwt, env, query: "?show=approved" })).body);
+    assert.ok(b.includes(" disabled") && b.includes('data-building="0"') && b.includes("Paste the owner link first."), st + ": dimmed until pasted");
+  }
+  const page = (await adminGet(db, { jwt, env, query: "?show=approved" })).body;
+  assert.ok(page.includes("form.send button[data-building]") && page.includes('btn.dataset.building === "1"'), "script turns it on after a paste, never while building");
+  assert.ok(page.includes("button:disabled{opacity:.45;cursor:not-allowed}"), "dimmed look");
+});

@@ -181,6 +181,9 @@ ${mailOff ? `<p class="off">Sending is off (${e(mailOff)}); the link waits here 
 }
 
 function renderRow(r, mails = [], mailOff = null, flash = "", nowMs = Date.now(), prov = null, links = {}, code = "") {
+  // Allen 11-23: the paste-form Send stays dimmed while the Mini builds (its link arrives as "Invite link ready"),
+  // and otherwise until a link is pasted (the page script turns it on).
+  const building = !!prov && !["ready", "failed", "stopped"].includes(prov.state) && !(links && links.invite);
   const e = escapeHtml;
   const personal = r.referral === "allen" ? ` <span class="badge">Personal invite</span>` : "";
   const btn = (action, label) =>
@@ -264,7 +267,7 @@ ${r.status === "approved" || r.status === "invited" ? `<div class="copy" data-fi
 <input type="hidden" name="id" value="${e(r.id)}">
 <label>Owner link (paste it here) <input class="link" name="link" type="url" autocomplete="off" required></label>
 ${mailOff ? `<p class="off">Sending is off (${e(mailOff)}). Copy the email below and send it yourself.</p>`
-    : `<button name="action" value="send_invite" type="submit">Send invite email</button> to ${em(r.email)}`}
+    : `<button name="action" value="send_invite" type="submit" disabled data-building="${building ? "1" : "0"}" title="${building ? "Waits for the server to be ready. The Mini fills in the link." : "Paste the owner link first."}">Send invite email</button> to ${em(r.email)}`}
 </form>
 <p>Subject: <b>${e(INVITE_EMAIL_SUBJECT)}</b></p>
 <textarea class="mail" readonly rows="12"></textarea>
@@ -337,7 +340,7 @@ dl{display:grid;grid-template-columns:10rem 1fr;gap:.1rem .75rem;margin:.5rem 0}
 textarea,input{width:100%;box-sizing:border-box;font:inherit}label{display:block;margin:.4rem 0}.buttons{margin-top:.4rem}
 .copy{margin-top:.6rem;border-top:1px dashed var(--dash);padding-top:.5rem}
 .mail-log{margin:.4rem 0;padding-left:1.2rem}.ms{border-radius:4px;padding:0 .4em;background:var(--gray)}.ms-delivered{background:var(--green)}
-.ms-bounced,.ms-complained,.ms-failed{background:var(--red)}.build{margin:.5rem 0}.bs{border-radius:4px;padding:0 .4em;background:var(--gray)}.bs-ready{background:var(--green)}.bs-failed{background:var(--red)}.bs-waiting_cap{background:var(--yellow)}.bs-stopped{background:var(--red)}.ready{margin:.3rem 0}.remind{background:var(--remind);border-radius:6px;padding:.3rem .7rem;margin:.5rem 0}.flash{background:var(--yellow);border-radius:6px;padding:.3rem .6rem}.off{color:var(--off)}</style></head><body>
+.ms-bounced,.ms-complained,.ms-failed{background:var(--red)}.build{margin:.5rem 0}.bs{border-radius:4px;padding:0 .4em;background:var(--gray)}.bs-ready{background:var(--green)}.bs-failed{background:var(--red)}.bs-waiting_cap{background:var(--yellow)}.bs-stopped{background:var(--red)}.ready{margin:.3rem 0}.remind{background:var(--remind);border-radius:6px;padding:.3rem .7rem;margin:.5rem 0}.flash{background:var(--yellow);border-radius:6px;padding:.3rem .6rem}.off{color:var(--off)}button:disabled{opacity:.45;cursor:not-allowed}</style></head><body>
 <h1>Invite requests</h1><p>Signed in as ${em(auth.email)} · Show: ${nav}</p>
 ${results.length ? results.map((r) => renderRow(r, mails.get(r.id), mailOff, r.id === flashId ? flash : "", nowMs, provs.get(r.id) || null, links.get(r.id) || {}, codes.get(r.id) || "")).join("\n") : "<p>None.</p>"}
 ${renderServerMail(await serverMails(env.DB))}
@@ -348,6 +351,13 @@ const TEMPLATES = { plain: ${JSON.stringify(INVITE_EMAIL_TEMPLATE).replace(/</g,
 ${COPY_LINK_SCRIPT}
 // CR-AUTOSLUG.1: Enter in the Address code box never submits (a second guard: the form's first submit button is a
 // disabled one, so implicit submission does nothing even without this script).
+// Allen 11-23: a paste-form Send turns on only once a link is pasted, and never while the Mini is still building.
+for (const btn of document.querySelectorAll('form.send button[data-building]')) {
+  const box = btn.form && btn.form.querySelector('input[name="link"]');
+  if (!box || btn.dataset.building === "1") continue;
+  const sync = () => { btn.disabled = !box.value.trim(); btn.title = btn.disabled ? "Paste the owner link first." : ""; };
+  box.addEventListener("input", sync); sync();
+}
 for (const box of document.querySelectorAll('input[name="slug"]')) {
   box.addEventListener("keydown", (ev) => { if (ev.key === "Enter") ev.preventDefault(); });
 }
