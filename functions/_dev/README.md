@@ -40,6 +40,17 @@ files that export `onRequest…`. So everything that is not part of the site liv
   Every email record (`invite_mail`, request and server emails) is deleted 90 days after it was sent (`pruneOld`). `/api/provision-state` action `signed_up` takes an optional
   `signed_up_at` (the real time the owner set their password; only ever moves the stored date earlier). Tests:
   `functions/_dev/tests/admintabs.test.js` (O1-O6).
+- **Newsletter (CR-NEWSLETTER.1, Allen 11-23):** `functions/_dev/migrations/0012_newsletter.sql` (run before publishing
+  the code; safe twice) makes `newsletter` (email, status subscribed/unsubscribed, source setup/admin, opted_in_at,
+  opted_out_at; an unsubscribed row keeps only email + opted_out_at). `functions/_lib/newsletter.js` holds the rules
+  (one ordering rule: an older change never undoes a newer one; Allen's Add never re-adds an unsubscribed address).
+  `functions/api/newsletter.js` takes a customer server's choice relayed by the router (same `BERVO_MAIL_RELAY_SECRET`
+  signature as account-mail; actions `set` and `status`). `functions/api/newsletter-events.js` is Postmark's webhook
+  for the **broadcast** stream (SubscriptionChange / SpamComplaint → unsubscribed; same Basic auth as
+  postmark-events). `functions/newsletter/unsubscribe.js` is the one-click link (`?t=` = HMAC with Pages secret
+  `NEWSLETTER_UNSUB_SECRET`, 32+ characters; GET shows a button, POST or RFC 8058 one-click unsubscribes).
+  `functions/admin/newsletter.js` is the admin Newsletter tab (count, list, Add, Unsubscribe, Export CSV). Invite-request
+  data never feeds it. Tests: `functions/_dev/tests/newsletter.test.js` (N1-N11).
 - `functions/_dev/tests/invite.test.js` — tests: `node --experimental-default-type=module --test functions/_dev/tests/invite.test.js`
   (Node 22+, no packages; D1 is mocked over `node:sqlite` with the real schema). It exports nothing, so it is never a route.
 

@@ -496,7 +496,7 @@ textarea,input{width:100%;box-sizing:border-box;font:inherit}label{display:block
 details.answers{margin:.5rem 0}details.answers summary,details.row summary{cursor:pointer}details.answers summary{color:var(--muted)}
 details.row{border:1px solid var(--line);border-radius:8px;padding:.4rem .8rem;margin:.4rem 0}details.row[open] .req{border:0;padding:0}
 .timeline{margin:.4rem 0}.s-built{background:var(--green)}.s-signed_up{background:var(--green)}.s-new{background:var(--blue)}.s-onboarded{background:var(--green)}</style></head><body>
-<h1>Invite requests</h1><p>Signed in as ${em(auth.email)}</p><nav class="tabs">${nav}</nav>
+<h1>Invite requests</h1><p>Signed in as ${em(auth.email)} · <a href="/admin/newsletter">Newsletter</a></p><nav class="tabs">${nav}</nav>
 ${listHtml}
 <script nonce="${nonce}">
 // CR-ADMINDARK.1: the saved home-page light/dark choice (bervo-theme), if any; else the device setting.
