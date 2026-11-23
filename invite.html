@@ -1,5 +1,7 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>Request an Invite · Bervo</title><style>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><script src="/theme.js"></script><title>Request an Invite · Bervo</title><style>
 :root{--bg:#f6f8fb;--surface:#fff;--fg:#0f1a2b;--muted:#566378;--line:#dde4ee;--accent:#2b609a;--accent-ink:#fff;--err:#b3261e}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0d0d0d;--surface:#161616;--fg:#e8e8e8;--muted:#9a9a9a;--line:#2a2a2a;--accent:#6aa9dc;--accent-ink:#0b1220;--err:#f08a80;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#0d0d0d;--surface:#161616;--fg:#e8e8e8;--muted:#9a9a9a;--line:#2a2a2a;--accent:#6aa9dc;--accent-ink:#0b1220;--err:#f08a80;color-scheme:dark}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif}
 .wrap{max-width:760px;margin:0 auto;padding:24px 16px 64px}nav{font-size:.9rem;margin-bottom:18px}nav a{margin-right:1rem}a{color:var(--accent)}
 .card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:24px}
@@ -47,10 +49,10 @@ button:disabled{opacity:.6;cursor:default}footer{margin-top:2rem;font-size:.85re
 <div class="radios"><label><input type="radio" name="phone" value="iphone" required> iPhone</label><label><input type="radio" name="phone" value="android"> Android</label></div>
 <span class="err"></span></fieldset>
 <fieldset id="fs-plan"><legend>Which plan would you like?</legend>
-<span class="help">Upgrade or downgrade anytime.</span>
+<span class="help">Bervo is free until January 5, 2027. Cancel anytime.</span>
 <div class="plans">
-<label class="plan"><input type="radio" name="plan" value="standard" required><span><b>Standard $49/mo</b> <span class="help">Your own walled-off account on a shared Bervo server. Add texts, voice, assistants anytime. Upgrade to Dedicated anytime. AI key costs additional. Bervo is free until January 5, 2027. Cancel anytime.</span></span></label>
-<label class="plan"><input type="radio" name="plan" value="private"><span><b>Dedicated $99/mo</b> <span class="help">Your own dedicated private Bervo server. Includes texts, voice, and your first assistant. Downgrade to Standard anytime. AI key costs additional. Bervo is free until January 5, 2027. Cancel anytime.</span></span></label>
+<label class="plan"><input type="radio" name="plan" value="standard" required><span><b>Standard $49/mo</b> <span class="help">Your own walled-off account on a shared Bervo server. Add texts, voice, assistants anytime. Upgrade to Dedicated anytime. AI key costs additional.</span></span></label>
+<label class="plan"><input type="radio" name="plan" value="private"><span><b>Dedicated $99/mo</b> <span class="help">Your own dedicated private Bervo server. Includes texts, voice, and your first assistant. Downgrade to Standard anytime. AI key costs additional.</span></span></label>
 </div>
 <span class="err"></span></fieldset>
 <label class="f" for="heard_from">How did you hear about Bervo?<select id="heard_from" name="heard_from" required><option value="">Choose one</option><option value="referral">Referred by someone</option><option value="social">Social Media</option><option value="search">Web Search (Google, etc.)</option><option value="ai">AI told me (ChatGPT, Claude, Gemini, etc.)</option><option value="media">An article, podcast or newsletter</option><option value="ad">An online ad</option><option value="event">An event or talk</option><option value="other">Other</option></select><span class="err"></span></label>

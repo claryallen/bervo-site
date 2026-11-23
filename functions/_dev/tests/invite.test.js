@@ -522,7 +522,7 @@ test("bidi, zero-width and other format characters are stripped from every text 
 test("non-site files live under functions/ (Pages does not serve that directory); nothing extra at the root", () => {
   const root = readdirSync(ROOT).filter((n) => !n.startsWith(".git"));
   const allowed = new Set(["404.html", "_headers", "_redirects", "brand", "download", "fonts", "functions", "index.html", "invite-thanks.html",
-    "invite.html", "invite.js", "invite-thanks.js", "privacy.html", "site.js", "terms.html", ".well-known", "go.js"]);
+    "invite.html", "invite.js", "invite-thanks.js", "privacy.html", "site.js", "terms.html", ".well-known", "go.js", "theme.js"]);
   assert.deepEqual(root.filter((n) => !allowed.has(n)), [], "unexpected files at the served root");
   for (const f of ["functions/_lib/invites.js", "functions/_dev/tests/invite.test.js"]) {
     const src = readFileSync(path.join(ROOT, f), "utf8");
@@ -700,9 +700,10 @@ test("/invite and /invite-thanks: only same-origin script files, no inline scrip
   for (const f of ["invite.html", "invite-thanks.html"]) {
     const html = readFileSync(path.join(ROOT, f), "utf8");
     const tags = [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/g)];
-    assert.equal(tags.length, 1, f);
-    assert.match(tags[0][1], /^ src="\/invite(-thanks)?\.js(\?v=\d+)?"$/, f);   // ?v=N: cache-busting version only
-    assert.equal(tags[0][2].trim(), "", f + ": no inline code");
+    assert.equal(tags.length, 2, f);   // CR-SITEDARK.1: /theme.js in <head> (saved light/dark choice) + the page's own script
+    assert.match(tags[0][1], /^ src="\/theme\.js"$/, f);
+    assert.match(tags[1][1], /^ src="\/invite(-thanks)?\.js(\?v=\d+)?"$/, f);   // ?v=N: cache-busting version only
+    assert.equal(tags[0][2].trim() + tags[1][2].trim(), "", f + ": no inline code");
     assert.ok(!/\son[a-z]+=/i.test(html), f + ": no inline event handlers");
     assert.ok(!/javascript:/i.test(html), f);
   }
@@ -729,8 +730,8 @@ test("plan: required, allowlisted, stored and shown; Standard listed first", asy
   const html = readFileSync(path.join(ROOT, "invite.html"), "utf8");
   assert.ok(html.indexOf('value="standard"') < html.indexOf('value="private"'), "Standard first");
   assert.ok(html.indexOf('name="phone" value="android"') < html.indexOf("<legend>Which plan would you like?</legend>"), "after the phone question");
-  for (const t of ['<label class="plan"><input type="radio" name="plan" value="standard" required><span><b>Standard $49/mo</b> <span class="help">Your own walled-off account on a shared Bervo server. Add texts, voice, assistants anytime. Upgrade to Dedicated anytime. AI key costs additional. Bervo is free until January 5, 2027. Cancel anytime.</span></span></label>',
-    '<label class="plan"><input type="radio" name="plan" value="private"><span><b>Dedicated $99/mo</b> <span class="help">Your own dedicated private Bervo server. Includes texts, voice, and your first assistant. Downgrade to Standard anytime. AI key costs additional. Bervo is free until January 5, 2027. Cancel anytime.</span></span></label>'])
+  for (const t of ['<label class="plan"><input type="radio" name="plan" value="standard" required><span><b>Standard $49/mo</b> <span class="help">Your own walled-off account on a shared Bervo server. Add texts, voice, assistants anytime. Upgrade to Dedicated anytime. AI key costs additional.</span></span></label>',
+    '<label class="plan"><input type="radio" name="plan" value="private"><span><b>Dedicated $99/mo</b> <span class="help">Your own dedicated private Bervo server. Includes texts, voice, and your first assistant. Downgrade to Standard anytime. AI key costs additional.</span></span></label>'])
     assert.ok(html.includes(t), "radio left of the bold name and grey line: " + t.slice(0, 60));
 });
 
@@ -820,7 +821,11 @@ test("page: the other-account box shows only while Other is ticked, and is requi
   assert.equal(press(p), false, "with an answer the form is sent");
   const html = readFileSync(path.join(ROOT, "invite.html"), "utf8");
   assert.match(html, /What other email account\(s\)\? \(e\.g\. Yahoo, AOL\)/);
-  assert.equal((html.match(/AI key costs additional\. Bervo is free until January 5, 2027\. Cancel anytime\./g) || []).length, 2);
+  // Allen 11-23: the free/cancel line moved out of the plan panels to the line under "Which plan would you like?".
+  assert.equal((html.match(/AI key costs additional\.<\/span>/g) || []).length, 2);
+  assert.equal((html.match(/Bervo is free until January 5, 2027\. Cancel anytime\./g) || []).length, 1);
+  assert.ok(html.includes('<legend>Which plan would you like?</legend>\n<span class="help">Bervo is free until January 5, 2027. Cancel anytime.</span>'));
+  assert.ok(!html.includes("Upgrade or downgrade anytime."));
 });
 
 // ---------- "Which type of computer(s) do you use?" (Allen 11-11) ----------
