@@ -728,8 +728,8 @@ test("plan: required, allowlisted, stored and shown; Standard listed first", asy
   const html = readFileSync(path.join(ROOT, "invite.html"), "utf8");
   assert.ok(html.indexOf('value="standard"') < html.indexOf('value="private"'), "Standard first");
   assert.ok(html.indexOf('name="phone" value="android"') < html.indexOf("<legend>Which plan would you like?</legend>"), "after the phone question");
-  for (const t of ['<label class="plan"><input type="radio" name="plan" value="standard" required><span><b>Standard $49/mo</b> <span class="help">Your own walled-off account on a shared Bervo server. Add texts, voice, assistants anytime. Upgrade to Dedicated anytime. AI key costs additional. Bervo is free until January 5, 2027. Cancel anytime.</span></span></label>',
-    '<label class="plan"><input type="radio" name="plan" value="private"><span><b>Dedicated $99/mo</b> <span class="help">Your own dedicated private Bervo server. Includes texts, voice, and your first assistant. Downgrade to Standard anytime. AI key costs additional. Bervo is free until January 5, 2027. Cancel anytime.</span></span></label>'])
+  for (const t of ['<label class="plan"><input type="radio" name="plan" value="standard" required><span><b>Standard $49/mo</b> <span class="help">Your own walled-off account on a shared Bervo server. Add texts, voice, assistants anytime. Upgrade to Dedicated anytime. AI key costs additional.</span></span></label>',
+    '<label class="plan"><input type="radio" name="plan" value="private"><span><b>Dedicated $99/mo</b> <span class="help">Your own dedicated private Bervo server. Includes texts, voice, and your first assistant. Downgrade to Standard anytime. AI key costs additional.</span></span></label>'])
     assert.ok(html.includes(t), "radio left of the bold name and grey line: " + t.slice(0, 60));
 });
 
@@ -819,7 +819,11 @@ test("page: the other-account box shows only while Other is ticked, and is requi
   assert.equal(press(p), false, "with an answer the form is sent");
   const html = readFileSync(path.join(ROOT, "invite.html"), "utf8");
   assert.match(html, /What other email account\(s\)\? \(e\.g\. Yahoo, AOL\)/);
-  assert.equal((html.match(/AI key costs additional\. Bervo is free until January 5, 2027\. Cancel anytime\./g) || []).length, 2);
+  // Allen 11-23: the free/cancel line moved out of the plan panels to the line under "Which plan would you like?".
+  assert.equal((html.match(/AI key costs additional\.<\/span>/g) || []).length, 2);
+  assert.equal((html.match(/Bervo is free until January 5, 2027\. Cancel anytime\./g) || []).length, 1);
+  assert.ok(html.includes('<legend>Which plan would you like?</legend>\n<span class="help">Bervo is free until January 5, 2027. Cancel anytime.</span>'));
+  assert.ok(!html.includes("Upgrade or downgrade anytime."));
 });
 
 // ---------- "Which type of computer(s) do you use?" (Allen 11-11) ----------
