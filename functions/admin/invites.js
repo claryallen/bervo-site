@@ -15,9 +15,14 @@
 // ready / failed at <step> / waiting: daily cap), a Retry button for a failed build (failed -> queued; the build
 // continues from the failed step), and "link ready (expires <date>)" with Send buttons that send the delivered link
 // server side (it is never put in this page). The paste field stays as the fallback for a hand-made link.
-import { checkAccess, escapeHtml, pruneOld, redirect, SLUG_RE, stripFormatChars, TRIM_SET } from "../_lib/invites.js";
+// CR-AUTOSLUG.1 (Allen 11-23): the Address code box comes pre-filled with a fresh code (_lib/addresscode.js, made on
+// the server when the page is drawn: this page's CSP allows no script but its own nonce one). "Approve and build"
+// approves with the code in the box (refused with a message when it is empty, invalid, reserved or already used);
+// "Approve only" approves with no slug, so the picker builds nothing.
+import { checkAccess, escapeHtml, pruneOld, redirect, stripFormatChars, TRIM_SET } from "../_lib/invites.js";
 import { friendlyFromDirect, friendlyLink, GO_DEMO_HOSTS, GO_LABEL_RE, GO_PAGES, GO_RESERVED } from "../_lib/golink.js";
 import { inviteBody, linkMatchesSlug, needsIphoneNoMacNote, MailError, reminderDue, reminderExpiryDate, sendingOff, sendTemplate, TEMPLATES } from "../_lib/mail.js";
+import { addressProblem, addressTaken, newCode, takenAddresses } from "../_lib/addresscode.js";
 import { BUILD_STEPS, deleteLink, linksFor, NOTE_WORDS, provisionFor, readLink, sendLinkEmail, TEMPLATE_KIND } from "../_lib/provision.js";
 
 // The invite email (words: daily-dashboard docs/marketing/site/INVITE_FORM_COPY_V1.md §5, approved by Allen 11-10;
@@ -36,7 +41,12 @@ const SENT_FLASH = { ok: "Invite email sent.", reminder: "Reminder sent.", notdu
   // CR-AUTOPROVISION.1: Send with the link the Mini delivered (stored encrypted; never on this page).
   nolink: "Not sent: the delivered link is gone (sent already, or expired). Paste a hand-made link, or Retry the build.",
   state: "Not sent: this request is not approved or invited.",
-  retried: "Build queued again: the Mini picks it up within 5 minutes and continues from the failed step." };
+  retried: "Build queued again: the Mini picks it up within 5 minutes and continues from the failed step.",
+  // CR-AUTOSLUG.1: Approve and build refused (nothing changed; the request is as it was).
+  code_empty: "Not approved: Approve and build needs an address code in the box. Type one, or reload the page for a new one. To approve without building a server, press Approve only.",
+  code_invalid: "Not approved: an address code is lowercase letters, digits and hyphens, starts with a letter or digit, and is at most 31 characters.",
+  code_reserved: "Not approved: that address code is a reserved name. Type another, or reload the page for a new one.",
+  code_taken: "Not approved: that address code is already used by another request or server. Type another, or reload the page for a new one." };
 
 const TRANSITIONS = {
   approve: { to: "approved", from: ["new", "not_now"], stamp: "approved_at" },
@@ -153,13 +163,22 @@ ${mailOff ? `<p class="off">Sending is off (${e(mailOff)}); the link waits here 
   return `<div class="build"><p>Server: <span class="bs bs-${e(prov ? prov.state : "none")}">${line}</span>${prov && prov.finished_at ? ` · ${fmt(prov.finished_at)}` : ""}</p>${notes}${retry}${send}</div>`;
 }
 
-function renderRow(r, mails = [], mailOff = null, flash = "", nowMs = Date.now(), prov = null, links = {}) {
+function renderRow(r, mails = [], mailOff = null, flash = "", nowMs = Date.now(), prov = null, links = {}, code = "") {
   const e = escapeHtml;
   const personal = r.referral === "allen" ? ` <span class="badge">Personal invite</span>` : "";
   const btn = (action, label) =>
     `<button name="action" value="${action}" type="submit">${label}</button>`;
+  const btnT = (action, label, tip) =>
+    `<button name="action" value="${action}" type="submit" title="${e(tip)}">${label}</button>`;
   const actions = [];
-  if (TRANSITIONS.approve.from.includes(r.status)) actions.push(btn("approve", "Approve"));
+  if (TRANSITIONS.approve.from.includes(r.status)) {
+    // CR-AUTOSLUG.1 (Allen 11-23): two buttons. Approve and build uses the address code in the box (the Mini's picker
+    // builds it); Approve only approves with no address code, so nothing is built (the old empty-box behavior).
+    actions.push(btnT("approve_build", "Approve and build",
+      "Approve this request and build its server at the address code in the box. The Mini starts within 5 minutes."));
+    actions.push(btnT("approve_only", "Approve only",
+      "Approve this request without building a server (no address code is kept). Build it by hand later, or press Not now and then Approve and build."));
+  }
   if (TRANSITIONS.not_now.from.includes(r.status)) actions.push(btn("not_now", "Not now"));
   if (TRANSITIONS.invited.from.includes(r.status)) actions.push(btn("invited", "Mark invited"));
   if (TRANSITIONS.claimed.from.includes(r.status)) actions.push(btn("claimed", "Mark claimed (trims this request)"));
@@ -171,8 +190,12 @@ function renderRow(r, mails = [], mailOff = null, flash = "", nowMs = Date.now()
 ${r.approved_at ? `<dt>Approved</dt><dd>${fmt(r.approved_at)}</dd>` : ""}${r.invited_at ? `<dt>Invited</dt><dd>${fmt(r.invited_at)}</dd>` : ""}
 <dt>Claimed</dt><dd>${fmt(r.status_changed_at)}</dd></dl></article>`;
   }
+  // CR-AUTOSLUG.1: the box comes pre-filled (the request's own slug if it has one, else a fresh code made for this
+  // page view); Allen may type over it.
+  const boxValue = r.slug || code || "";
+  const codeTip = `${boxValue || "<code>"}.bervo.ai, made up automatically. Type over it for a special case.`;
   const slugField = r.status === "new" || r.status === "not_now"
-    ? `<label>Slug (optional) <input name="slug" maxlength="31" pattern="[a-z0-9][a-z0-9\\-]{0,30}" value="${e(r.slug || "")}"></label>` : "";
+    ? `<label title="${e(codeTip)}">Address code <input name="slug" maxlength="31" pattern="[a-z0-9][a-z0-9\\-]{0,30}" autocomplete="off" spellcheck="false" title="${e(codeTip)}" value="${e(boxValue)}"></label>` : "";
   return `<article class="req" id="r${e(r.id)}">
 <h2>#${e(r.id)} · ${e(r.first_name)} ${e(r.last_name)}${personal} <span class="status s-${e(r.status)}">${e(r.status)}</span></h2>
 <dl>
@@ -250,6 +273,17 @@ export async function onRequestGet(context) {
   const links = await linksFor(env.DB, results.map((r) => r.id));
   const flashId = Number(url.searchParams.get("r"));
   const flash = Object.hasOwn(SENT_FLASH, url.searchParams.get("sent") || "") ? SENT_FLASH[url.searchParams.get("sent")] : "";
+  // CR-AUTOSLUG.1: a fresh address code for each request that can be approved and has none yet; never one already in
+  // D1, never the same code twice on this page. Approve re-checks, so a code is only taken when it is approved.
+  const codes = new Map();
+  if (results.some((r) => (r.status === "new" || r.status === "not_now") && !r.slug)) {
+    const taken = await takenAddresses(env.DB);
+    for (const r of results) {
+      if ((r.status !== "new" && r.status !== "not_now") || r.slug) continue;
+      const c = await newCode((x) => taken.has(x), context.randomBytes);
+      if (c) { taken.add(c); codes.set(r.id, c); }
+    }
+  }
   const nonce = [...crypto.getRandomValues(new Uint8Array(16))].map((b) => b.toString(16).padStart(2, "0")).join("");
   const nav = Object.keys(FILTERS).map((k) =>
     k === f ? `<b>${k}</b>` : `<a href="/admin/invites?show=${k}">${k}</a>`).join(" · ");
@@ -267,7 +301,7 @@ textarea,input{width:100%;box-sizing:border-box;font:inherit}label{display:block
 .mail-log{margin:.4rem 0;padding-left:1.2rem}.ms{border-radius:4px;padding:0 .4em;background:#eee}.ms-delivered{background:#d1fae5}
 .ms-bounced,.ms-complained,.ms-failed{background:#fee2e2}.build{margin:.5rem 0}.bs{border-radius:4px;padding:0 .4em;background:#eee}.bs-ready{background:#d1fae5}.bs-failed{background:#fee2e2}.bs-waiting_cap{background:#fef3c7}.bs-stopped{background:#fee2e2}.ready{margin:.3rem 0}.remind{background:#eff6ff;border-radius:6px;padding:.3rem .7rem;margin:.5rem 0}.flash{background:#fef3c7;border-radius:6px;padding:.3rem .6rem}.off{color:#7a4b00}</style></head><body>
 <h1>Invite requests</h1><p>Signed in as ${em(auth.email)} · Show: ${nav}</p>
-${results.length ? results.map((r) => renderRow(r, mails.get(r.id), mailOff, r.id === flashId ? flash : "", nowMs, provs.get(r.id) || null, links.get(r.id) || {})).join("\n") : "<p>None.</p>"}
+${results.length ? results.map((r) => renderRow(r, mails.get(r.id), mailOff, r.id === flashId ? flash : "", nowMs, provs.get(r.id) || null, links.get(r.id) || {}, codes.get(r.id) || "")).join("\n") : "<p>None.</p>"}
 ${renderServerMail(await serverMails(env.DB))}
 <script nonce="${nonce}">
 const TEMPLATES = { plain: ${JSON.stringify(INVITE_EMAIL_TEMPLATE).replace(/</g, "\\u003c")}, note: ${JSON.stringify(inviteBody("iphone", '["none"]')).replace(/</g, "\\u003c")} };
@@ -421,21 +455,35 @@ export async function onRequestPost(context) {
     await env.DB.prepare("UPDATE invite_requests SET note = ? WHERE id = ?").bind(note || null, id).run();
     return redirect(`/admin/invites#r${id}`);
   }
-  const t = Object.hasOwn(TRANSITIONS, action) ? TRANSITIONS[action] : null;
+  // CR-AUTOSLUG.1: "approve_build" needs a usable, unused address code; "approve_only" approves with none. A plain
+  // "approve" (a page loaded before this change) keeps its old meaning: build when the box has a code, else not.
+  let kind = action;
+  if (action === "approve") kind = String(form.get("slug") || "").trim() ? "approve_build" : "approve_only";
+  const t = kind === "approve_build" || kind === "approve_only" ? TRANSITIONS.approve
+    : Object.hasOwn(TRANSITIONS, action) && action !== "approve" ? TRANSITIONS[action] : null;
   if (!t) return refused(400);
   if (!t.from.includes(row.status)) return redirect(`/admin/invites#r${id}`);   // stale page: no change
   let slug = null;
-  if (action === "approve") {
+  if (kind === "approve_build") {
     const s = String(form.get("slug") || "").trim().toLowerCase();
-    if (s && !SLUG_RE.test(s)) return refused(400);
-    slug = s || null;
+    const why = addressProblem(s);
+    if (why) return redirect(`/admin/invites?sent=code_${why}&r=${id}#r${id}`);
+    if (await addressTaken(env.DB, s, id)) return redirect(`/admin/invites?sent=code_taken&r=${id}#r${id}`);
+    slug = s;
   }
   const sets = t.trim ? ["status = ?", "status_changed_at = ?", TRIM_SET] : ["status = ?", "status_changed_at = ?", "note = ?"];
   const args = t.trim ? [t.to, nowIso] : [t.to, nowIso, note || null];
   if (t.stamp) { sets.push(`${t.stamp} = ?`); args.push(nowIso); }
-  if (action === "approve") { sets.push("slug = COALESCE(?, slug)"); args.push(slug); }
-  await env.DB.prepare(`UPDATE invite_requests SET ${sets.join(", ")} WHERE id = ? AND status = ?`)
-    .bind(...args, id, row.status).run();
+  // Approve only clears any earlier slug, so nothing is built (the old COALESCE kept it, and a not-now request with a
+  // slug was then built anyway). Approve and build sets the code only if no other request took it meanwhile.
+  if (t === TRANSITIONS.approve) { sets.push("slug = ?"); args.push(slug); }
+  const guard = slug ? " AND NOT EXISTS (SELECT 1 FROM invite_requests o WHERE o.slug = ? AND o.id <> ?)" : "";
+  const res = await env.DB.prepare(`UPDATE invite_requests SET ${sets.join(", ")} WHERE id = ? AND status = ?${guard}`)
+    .bind(...args, id, row.status, ...(slug ? [slug, id] : [])).run();
+  if (slug && res?.meta && res.meta.changes === 0) {
+    const now = await env.DB.prepare("SELECT status FROM invite_requests WHERE id = ?").bind(id).first();
+    if (now && now.status === row.status) return redirect(`/admin/invites?sent=code_taken&r=${id}#r${id}`);
+  }
   if (t.to !== "approved" && t.to !== "invited") {
     // CR-AUTOPROVISION.1: a delivered link never outlives an open request.
     for (const k of ["invite", "reminder3", "reminder10"]) await deleteLink(env.DB, id, k);

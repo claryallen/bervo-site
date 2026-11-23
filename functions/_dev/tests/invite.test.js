@@ -371,8 +371,10 @@ test("Approve changes only that D1 row; Not now, Mark invited and transitions; n
   await adminPost(db, { id: "2", action: "not_now" }, { jwt });
   assert.equal(rows(db)[1].status, "not_now");
   // bad slug refused, nothing changes
+  // (CR-AUTOSLUG.1: refused with a plain message on the page instead of a bare 400)
   const bad = await adminPost(db, { id: "2", action: "approve", slug: "Bad Slug!" }, { jwt });
-  assert.equal(bad.status, 400);
+  assert.equal(bad.status, 303);
+  assert.ok(bad.location.includes("sent=code_invalid"), bad.location);
   assert.equal(rows(db)[1].status, "not_now");
   // unknown action, unknown id
   assert.equal((await adminPost(db, { id: "2", action: "delete" }, { jwt })).status, 400);
@@ -916,4 +918,139 @@ test("admin page: its own buttons pass the CSRF check (Referrer-Policy same-orig
   assert.match(res.body, /<dt>Email<\/dt><dd><!--email_off-->pat@example\.com<!--\/email_off--><\/dd>/);
   assert.match(res.body, /Signed in as <!--email_off-->[^<]+<!--\/email_off-->/);
   assert.ok(!/<!--email_off-->[^<]*<[a-z]/i.test(res.body.replace(/<!--email_off-->[^<]*<!--\/email_off-->/g, "")), "markers balanced");
+});
+
+// ---------- CR-AUTOSLUG.1: automatic address code, two Approve buttons ----------
+const addressBox = (body, id) => {
+  const art = body.split(`<article class="req" id="r${id}">`)[1]?.split("</article>")[0] || "";
+  const m = art.match(/<input name="slug"[^>]*value="([^"]*)"/);
+  return { art, value: m ? m[1] : null };
+};
+
+test("AS1 the page pre-fills a fresh address code for each new/not-now request (label, tooltip, two named buttons)", async () => {
+  const db = await seeded();
+  const page = await adminGet(db, { jwt: await makeJwt({}) });
+  assert.equal(page.status, 200);
+  const a = addressBox(page.body, 1), b = addressBox(page.body, 2);
+  assert.match(a.value, /^[abcdefghjkmnpqrstuvwxyz][abcdefghjkmnpqrstuvwxyz23456789]{5}$/);
+  assert.match(b.value, /^[abcdefghjkmnpqrstuvwxyz][abcdefghjkmnpqrstuvwxyz23456789]{5}$/);
+  assert.notEqual(a.value, b.value, "never the same code twice on one page");
+  assert.ok(a.art.includes(">Address code <input"), "labelled Address code");
+  assert.ok(a.art.includes(`title="${a.value}.bervo.ai, made up automatically. Type over it for a special case."`), "tooltip");
+  assert.ok(a.art.includes(`value="approve_build" type="submit" title="`) && a.art.includes(">Approve and build</button>"));
+  assert.ok(a.art.includes(`value="approve_only" type="submit" title="`) && a.art.includes(">Approve only</button>"));
+  assert.ok(!a.art.includes(">Approve</button>"), "the single Approve button is gone");
+  assert.ok(!page.body.includes("Slug (optional)"));
+  assert.equal((page.body.match(/<script/g) || []).length, 1, "made on the server: still only the page's own nonce script");
+  assert.ok(!/—/.test(a.art), "no em dash in the request's copy");
+  assert.equal(rows(db)[0].slug, null, "showing a code reserves nothing in D1");
+});
+
+test("AS2 a code already in D1 (a request's slug, a server in invite_mail) is never offered; a request's own slug is kept", async () => {
+  const db = await seeded();
+  db.raw.exec(readFileSync(path.join(ROOT, "functions/_dev/migrations/0002_invite_mail.sql"), "utf8"));
+  const L = "abcdefghjkmnpqrstuvwxyz", A = L + "23456789";
+  const enc = (w) => [...w].map((ch, i) => (i === 0 ? L : A).indexOf(ch));
+  // the page asks for codes in row order (newest first: request 2, then request 1)
+  db.raw.prepare("UPDATE invite_requests SET slug = 'aaaaaa' WHERE id = 1").run();   // taken by request 1 (not_now below)
+  db.raw.prepare("UPDATE invite_requests SET status = 'not_now' WHERE id = 1").run();
+  db.raw.prepare("INSERT INTO invite_mail (tenant, template, status, created_at) VALUES ('bbbbbb', 'loaded', 'sent', ?)").run(new Date(NOW).toISOString());
+  const seq = [...enc("aaaaaa"), ...enc("bbbbbb"), ...enc("k7m2qx")];
+  let i = 0;
+  _resetAccessKeyCache();
+  const res = await admin.onRequestGet({ request: new Request(`${ORIGIN}/admin/invites?show=all`, { headers: { "Cf-Access-Jwt-Assertion": await makeJwt({}) } }),
+    env: ADMIN_ENV(db), fetchImpl: certsFetch(), nowMs: NOW, randomBytes: (n) => Uint8Array.from({ length: n }, () => seq[i++ % seq.length]) });
+  const body = await res.text();
+  assert.equal(addressBox(body, 2).value, "k7m2qx", "aaaaaa (a request) and bbbbbb (a server) skipped");
+  assert.equal(addressBox(body, 1).value, "aaaaaa", "a not-now request shows its own earlier slug");
+});
+
+test("AS3 Approve and build with the code as shown -> approved with that slug; the picker's rule (approved + slug) builds it", async () => {
+  const db = await seeded();
+  const jwt = await makeJwt({});
+  const code = addressBox((await adminGet(db, { jwt })).body, 1).value;
+  const r = await adminPost(db, { id: "1", action: "approve_build", slug: code, note: "" }, { jwt });
+  assert.equal(r.status, 303);
+  assert.equal(r.location, "/admin/invites#r1");
+  assert.deepEqual([rows(db)[0].status, rows(db)[0].slug], ["approved", code]);
+  // provision-state.js's buildable condition, verbatim
+  assert.ok(db.raw.prepare("SELECT 1 FROM invite_requests WHERE id = 1 AND status = 'approved' AND slug IS NOT NULL").get());
+});
+
+test("AS4 a typed override is accepted under the slug rule (lowercased, trimmed); reserved / invalid / empty refused with a message", async () => {
+  const db = await seeded();
+  const jwt = await makeJwt({});
+  for (const [slug, code] of [["", "code_empty"], ["   ", "code_empty"], ["Bad Slug!", "code_invalid"], ["-x", "code_invalid"],
+    ["connect", "code_reserved"], ["www", "code_reserved"], ["my", "code_reserved"], ["admin", "code_reserved"], ["demo", "code_reserved"]]) {
+    const r = await adminPost(db, { id: "1", action: "approve_build", slug }, { jwt });
+    assert.equal(r.status, 303, slug);
+    assert.equal(r.location, `/admin/invites?sent=${code}&r=1#r1`, slug);
+    assert.deepEqual([rows(db)[0].status, rows(db)[0].slug], ["new", null], "nothing changed: " + slug);
+  }
+  const page = await adminGet(db, { jwt, query: "?sent=code_empty&r=1" });
+  assert.ok(page.body.includes("Not approved: Approve and build needs an address code in the box."), "plain message on the row");
+  const ok = await adminPost(db, { id: "1", action: "approve_build", slug: "  Pat-Special " }, { jwt });
+  assert.equal(ok.status, 303);
+  assert.deepEqual([rows(db)[0].status, rows(db)[0].slug], ["approved", "pat-special"]);
+});
+
+test("AS5 Approve refuses a duplicate: another request's slug or a server named in invite_mail", async () => {
+  const db = await seeded();
+  db.raw.exec(readFileSync(path.join(ROOT, "functions/_dev/migrations/0002_invite_mail.sql"), "utf8"));
+  const jwt = await makeJwt({});
+  assert.equal((await adminPost(db, { id: "1", action: "approve_build", slug: "k7m2qx" }, { jwt })).status, 303);
+  assert.equal(rows(db)[0].slug, "k7m2qx");
+  const dup = await adminPost(db, { id: "2", action: "approve_build", slug: "k7m2qx" }, { jwt });
+  assert.equal(dup.location, "/admin/invites?sent=code_taken&r=2#r2");
+  assert.deepEqual([rows(db)[1].status, rows(db)[1].slug], ["new", null]);
+  db.raw.prepare("INSERT INTO invite_mail (tenant, template, status, created_at) VALUES ('p3rvqm', 'loaded', 'sent', ?)").run(new Date(NOW).toISOString());
+  const dup2 = await adminPost(db, { id: "2", action: "approve_build", slug: "p3rvqm" }, { jwt });
+  assert.equal(dup2.location, "/admin/invites?sent=code_taken&r=2#r2");
+  assert.equal(rows(db)[1].status, "new");
+  // a request re-approved with its OWN earlier slug is not a duplicate (Not now mid-build, then Approve and build)
+  await adminPost(db, { id: "1", action: "not_now" }, { jwt });
+  assert.equal((await adminPost(db, { id: "1", action: "approve_build", slug: "k7m2qx" }, { jwt })).location, "/admin/invites#r1");
+  assert.deepEqual([rows(db)[0].status, rows(db)[0].slug], ["approved", "k7m2qx"]);
+});
+
+test("AS6 the UPDATE itself refuses a code another request took between the check and the write", async () => {
+  const db = await seeded();
+  const jwt = await makeJwt({});
+  // Simulate the race: the pre-check sees nothing, then the slug appears before the UPDATE runs.
+  const realPrepare = db.prepare.bind(db);
+  db.prepare = (q) => {
+    if (q.startsWith("UPDATE invite_requests SET status = ?")) db.raw.prepare("UPDATE invite_requests SET slug = 'k7m2qx' WHERE id = 2").run();
+    return realPrepare(q);
+  };
+  const r = await adminPost(db, { id: "1", action: "approve_build", slug: "k7m2qx" }, { jwt });
+  assert.equal(r.location, "/admin/invites?sent=code_taken&r=1#r1");
+  assert.deepEqual([rows(db)[0].status, rows(db)[0].slug], ["new", null]);
+});
+
+test("AS7 Approve only -> approved with no slug (not built), even when the box held a code or an earlier slug", async () => {
+  const db = await seeded();
+  const jwt = await makeJwt({});
+  const r = await adminPost(db, { id: "1", action: "approve_only", slug: "k7m2qx" }, { jwt });
+  assert.equal(r.location, "/admin/invites#r1");
+  assert.deepEqual([rows(db)[0].status, rows(db)[0].slug], ["approved", null]);
+  assert.equal(db.raw.prepare("SELECT 1 FROM invite_requests WHERE id = 1 AND status = 'approved' AND slug IS NOT NULL").get(), undefined,
+    "provision-state.js's buildable condition is false: the picker never builds it");
+  // a not-now request that had a slug: Approve only clears it (the old empty box kept it and the picker built it anyway)
+  db.raw.prepare("UPDATE invite_requests SET status = 'not_now', slug = 'oldslg' WHERE id = 2").run();
+  await adminPost(db, { id: "2", action: "approve_only", slug: "" }, { jwt });
+  assert.deepEqual([rows(db)[1].status, rows(db)[1].slug], ["approved", null]);
+  const page = await adminGet(db, { jwt });
+  assert.ok(addressBox(page.body, 1).art.includes("no slug"), "the page says it is not built automatically (wording as before)");
+});
+
+test("AS8 a page loaded before this change (plain 'approve') keeps its meaning: a code builds, an empty box does not", async () => {
+  const db = await seeded();
+  const jwt = await makeJwt({});
+  await adminPost(db, { id: "1", action: "approve", slug: "k7m2qx" }, { jwt });
+  assert.deepEqual([rows(db)[0].status, rows(db)[0].slug], ["approved", "k7m2qx"]);
+  await adminPost(db, { id: "2", action: "approve", slug: "" }, { jwt });
+  assert.deepEqual([rows(db)[1].status, rows(db)[1].slug], ["approved", null]);
+  // the new actions only move new/not-now requests, like Approve
+  assert.equal((await adminPost(db, { id: "1", action: "approve_build", slug: "p3rvqm" }, { jwt })).location, "/admin/invites#r1");
+  assert.equal(rows(db)[0].slug, "k7m2qx", "an approved request is not re-approved");
 });

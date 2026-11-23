@@ -26,6 +26,10 @@ files that export `onRequest…`. So everything that is not part of the site liv
   Mini), `AUTO_SEND_INVITE` and `AUTO_SEND_REMINDERS` (variables, leave unset = off; "on" only with Allen's go).
   The Mini's D1 token stays read-only: a D1 token cannot be limited below the whole account's D1. Tests:
   `functions/_dev/tests/provision.test.js`.
+- **Automatic address codes (CR-AUTOSLUG.1, Allen 11-23):** `functions/_lib/addresscode.js` makes the 6-character
+  code the admin page pre-fills (`<code>.bervo.ai`; letters and digits without `0 o 1 l i`, first a letter, never a
+  reserved name or a code already in D1). The same rules live in daily-dashboard `tools/tenant/address_code.py`;
+  its `test_address_code.py` compares the two. Tests: `functions/_dev/tests/addresscode.test.js`.
 - `functions/_dev/tests/invite.test.js` — tests: `node --experimental-default-type=module --test functions/_dev/tests/invite.test.js`
   (Node 22+, no packages; D1 is mocked over `node:sqlite` with the real schema). It exports nothing, so it is never a route.
 
