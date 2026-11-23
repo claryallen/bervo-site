@@ -371,7 +371,7 @@ test("F2 notes: only the fixed codes are stored (never text) and the admin page 
   assert.equal((await state(db, { action: "notes", request_id: id, run_id: "run-aaaaaaaa", codes: ["tz_defaulted", "pronouns_default", "tz_defaulted"] })).status, 200);
   assert.equal(provRow(db, id).notes, '["tz_defaulted","pronouns_default"]');
   const page = await adminGet(db);
-  assert.ok(page.includes("set to America/New_York") && page.includes("set to &quot;they&quot;") && page.includes("check before Send"));
+  assert.ok(page.includes("set to America/New_York") && !page.includes("set to &quot;they&quot;") && page.includes("check before Send"), "the pronoun note is stored but not shown (Allen 11-23)");
 });
 
 test("F3 one reminder clock: mail.reminderDue passes every shared case (reminder_cases.json; the Mini runs the same file)", () => {
@@ -419,4 +419,15 @@ test("SD2 with a delivered link: one live Send; the paste box and Copy fold unde
   assert.ok(page.indexOf('<details class="other">') < page.indexOf('value="send_invite"') && page.indexOf('value="send_invite"') < page.indexOf("</details>"), "the paste-box Send is inside the fold");
   assert.ok(!page.includes('value="invited"'), "no Mark invited when Send can do it");
   assert.ok(/value="not_now" type="submit" title="[^"]+"/.test(page) && /value="note" type="submit" title="Save the note only; nothing else changes."/.test(page), "tooltips");
+});
+
+test("SD3 the pronoun default note is never shown on the admin page (Allen 11-23); other notes still are", async () => {
+  const db = makeD1(); const id = seed(db);
+  await state(db, { action: "claim", request_id: id, run_id: "run-aaaaaaaa" });
+  await state(db, { action: "notes", request_id: id, run_id: "run-aaaaaaaa", codes: ["pronouns_default"] });
+  let page = await adminGet(db);
+  assert.ok(!page.includes("Pronouns are not on the form") && !page.includes("Set up with these defaults"), "only the pronoun code: no list at all");
+  await state(db, { action: "notes", request_id: id, run_id: "run-aaaaaaaa", codes: ["plan_standard", "pronouns_default"] });
+  page = await adminGet(db);
+  assert.ok(page.includes("Plan Standard: built as a dedicated server") && !page.includes("Pronouns are not on the form"));
 });

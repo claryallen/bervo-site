@@ -24,6 +24,7 @@ import { friendlyFromDirect, friendlyLink, GO_DEMO_HOSTS, GO_LABEL_RE, GO_PAGES,
 import { inviteBody, linkMatchesSlug, needsIphoneNoMacNote, MailError, reminderDue, reminderExpiryDate, sendingOff, sendTemplate, TEMPLATES } from "../_lib/mail.js";
 import { addressProblem, addressTaken, newCode, takenAddresses } from "../_lib/addresscode.js";
 import { BUILD_STEPS, deleteLink, linksFor, NOTE_WORDS, provisionFor, readLink, sendLinkEmail, TEMPLATE_KIND } from "../_lib/provision.js";
+const HIDDEN_NOTES = new Set(["pronouns_default"]);   // Allen 11-23: never shown on the admin page
 
 // The invite email (words: daily-dashboard docs/marketing/site/INVITE_FORM_COPY_V1.md §5, approved by Allen 11-10;
 // they live in functions/_lib/mail.js now, the one sender). CR-WELCOMEEMAIL.1: **Send invite email** sends it
@@ -175,8 +176,10 @@ ${mailOff ? `<p class="off">Sending is off (${e(mailOff)}); the link waits here 
 <button name="action" value="send_invite_stored" type="submit">Send invite email</button> to ${em(r.email)} with the delivered link</form>`}` : "";
   let codes = [];
   try { codes = prov && prov.notes ? JSON.parse(prov.notes) : []; } catch { codes = []; }
-  const notes = Array.isArray(codes) && codes.length ? `<p>Set up with these defaults (check before Send):</p><ul class="notes">${
-    codes.filter((c) => Object.hasOwn(NOTE_WORDS, c)).map((c) => `<li>${e(NOTE_WORDS[c])}</li>`).join("")}</ul>` : "";
+  // Allen 11-23: the pronoun default is not shown (pronouns are set per customer; CR-PRONOUNASK.1 asks at setup).
+  const shown = Array.isArray(codes) ? codes.filter((c) => Object.hasOwn(NOTE_WORDS, c) && !HIDDEN_NOTES.has(c)) : [];
+  const notes = shown.length ? `<p>Set up with these defaults (check before Send):</p><ul class="notes">${
+    shown.map((c) => `<li>${e(NOTE_WORDS[c])}</li>`).join("")}</ul>` : "";
   return `<div class="build"><p>Server: <span class="bs bs-${e(prov ? prov.state : "none")}">${line}</span>${prov && prov.finished_at ? ` · ${fmt(prov.finished_at)}` : ""}</p>${notes}${retry}${send}</div>`;
 }
 
