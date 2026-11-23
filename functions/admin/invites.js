@@ -149,7 +149,7 @@ this customer again: it makes a fresh link and the earlier one stops working. Pa
 day (the email says the link stays open until ${e(reminderExpiryDate(nowMs, r.timezone))}).</p>
 ${mailOff ? `<p class="off">Sending is off (${e(mailOff)}).</p>` : `<form method="post" action="/admin/invites" class="send">
 <input type="hidden" name="id" value="${e(r.id)}">
-<label>Fresh owner link <input name="link" type="url" autocomplete="off" required></label>
+<label for="rl-${e(r.id)}">Fresh owner link <input id="rl-${e(r.id)}" name="link" type="url" autocomplete="off" required></label>
 <button name="action" value="send_reminder" type="submit">Send ${label.toLowerCase()}</button> to ${em(r.email)}
 </form>`}</div>`;
 }
@@ -359,7 +359,7 @@ ${r.kept_email ? `<details class="answers"><summary>Email address</summary><p>${
     ? `<p class="locked" title="${e(`${r.slug}.bervo.ai was set when this request's server build started; it cannot change now.`)}">Address code: <b>${e(r.slug)}</b>.bervo.ai (set when the build started; cannot change)</p>
 <input type="hidden" name="slug" value="${e(r.slug)}">`
     : r.status === "new" || r.status === "not_now"
-    ? `<label title="${e(codeTip)}">Address code <input name="slug" maxlength="31" pattern="[a-z0-9][a-z0-9\\-]{0,30}" autocomplete="off" spellcheck="false" title="${e(codeTip)}" value="${e(boxValue)}"></label>` : "";
+    ? `<label for="slug-${e(r.id)}" title="${e(codeTip)}">Address code <input id="slug-${e(r.id)}" name="slug" maxlength="31" pattern="[a-z0-9][a-z0-9\\-]{0,30}" autocomplete="off" spellcheck="false" title="${e(codeTip)}" value="${e(boxValue)}"></label>` : "";
   // CR-ADMINTABS.1: the one thing this request needs goes first in the card: the delivered-link Send, or Retry.
   const need = needsYou(r, prov, mails);
   const inv = links && links.invite;
@@ -378,7 +378,7 @@ ${mailOff ? `<p class="off">Sending is off (${e(mailOff)}); the link waits here 
   return `<article class="req" id="r${e(r.id)}">
 <h2>#${e(r.id)} · ${e(r.first_name)} ${e(r.last_name)}${personal} <span class="status s-${e(stage)}">${e(STAGE_WORDS[stage] || r.status)}</span></h2>
 <p class="sum">${summary}</p>
-${need ? `<p class="need"><b>Needs you:</b> ${e(need)}</p>` : ""}
+${need ? `<p class="need" role="status"><b>Needs you:</b> ${e(need)}</p>` : ""}
 ${sendFirst}${retryFirst}
 <form method="post" action="/admin/invites" class="act">
 <button type="submit" disabled hidden aria-hidden="true" tabindex="-1" class="enter-guard"></button>
@@ -405,7 +405,7 @@ ${r.signed_up_at ? `<dt>Signed up</dt><dd>${fmt(r.signed_up_at)}</dd>` : ""}
 </dl>
 <h3>About them and their business</h3>
 <div class="about">${e(r.about)}</div>
-<label>Note <textarea name="note" maxlength="2000" rows="2">${e(r.note || "")}</textarea></label>
+<label for="note-${e(r.id)}">Note <textarea id="note-${e(r.id)}" name="note" maxlength="2000" rows="2">${e(r.note || "")}</textarea></label>
 ${btnT("note", "Save note", "Save the note only; nothing else changes.")}
 </details>
 </form>
@@ -417,12 +417,12 @@ ${r.status === "invited" ? renderReminder(r, mails, mailOff, nowMs, links) : ""}
 ${r.status === "approved" || r.status === "invited" ? `<details class="other"><summary>Send it yourself instead</summary><div class="copy" data-first="${e(r.first_name)}" data-variant="${needsIphoneNoMacNote(r.phone, r.computers) ? "note" : "plain"}">
 <form method="post" action="/admin/invites" class="send">
 <input type="hidden" name="id" value="${e(r.id)}">
-<label>Owner link (paste it here) <input class="link" name="link" type="url" autocomplete="off" required></label>
+<label for="ol-${e(r.id)}">Owner link (paste it here) <input id="ol-${e(r.id)}" class="link" name="link" type="url" autocomplete="off" required></label>
 ${mailOff ? `<p class="off">Sending is off (${e(mailOff)}). Copy the email below and send it yourself.</p>`
     : `<button name="action" value="send_invite" type="submit" disabled data-building="${building ? "1" : "0"}" title="${building ? "Waits for the server to be ready. The Mini fills in the link." : "Paste the owner link first."}">Send invite email</button> to ${em(r.email)}`}
 </form>
 <p>Subject: <b>${e(INVITE_EMAIL_SUBJECT)}</b></p>
-<textarea class="mail" readonly rows="12"></textarea>
+<label for="mail-${e(r.id)}" class="sr">Invite email</label><textarea id="mail-${e(r.id)}" class="mail" readonly rows="12"></textarea>
 <button type="button" class="copybtn" title="Copy the invite email to paste into your own email program.">Copy invite email</button> <span class="copied"></span>
 </div></details>` : ""}
 </article>`;
@@ -497,7 +497,7 @@ export async function onRequestGet(context) {
   const nav = TABS.map(([k, label]) => {
     const m = tabMarker(k, inTabRows(k));
     const n = m ? ` (${m})` : "";
-    return k === f ? `<b>${label}${n}</b>` : `<a href="/admin/invites?show=${k}">${label}${n}</a>`;
+    return k === f ? `<b aria-current="page">${label}${n}</b>` : `<a href="/admin/invites?show=${k}">${label}${n}</a>`;
   }).join(" · ");
   const draw = (r) => {
     const card = renderRow(r, M(r), mailOff, r.id === flashId ? flash : "", nowMs, P(r), links.get(r.id) || {}, codes.get(r.id) || "", f);
@@ -532,8 +532,32 @@ textarea,input{width:100%;box-sizing:border-box;font:inherit}label{display:block
 .tabs{margin:.5rem 0 1rem;line-height:1.9}.sum{margin:.2rem 0;color:var(--muted)}.sum b{color:var(--fg)}.need{background:var(--yellow);border-radius:6px;padding:.3rem .6rem;margin:.4rem 0}
 details.answers{margin:.5rem 0}details.answers summary,details.row summary{cursor:pointer}details.answers summary{color:var(--muted)}
 details.row{border:1px solid var(--line);border-radius:8px;padding:.4rem .8rem;margin:.4rem 0}details.row[open] .req{border:0;padding:0}
+/* CR-ADMINMOBILE.1 (Allen 11-23): phone-friendly and accessible. CSS and markup only. */
+:root{--focus:#0645ad}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--focus:#8ec1f0}}
+:root[data-theme="dark"]{--focus:#8ec1f0}
+:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
+.sr{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+input,textarea,select{font-size:16px}
+button{min-height:44px;min-width:44px;padding:.4rem .9rem;font:inherit;cursor:pointer}
+.buttons{display:flex;flex-wrap:wrap;gap:.5rem}
+.buttons button[value="not_now"],.buttons button[value="expired"]{margin-left:1rem;background:transparent;color:var(--fg);border:1px dashed var(--muted)}
+form.send,form.act.retry{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;margin:.6rem 0}
+form.send label,form.send input:not([type=hidden]){flex:1 1 100%}
+.req,details.row,summary,.tabs{overflow-wrap:anywhere}
+pre,code{overflow-wrap:anywhere;white-space:pre-wrap}
+summary{min-height:44px}
+@media (max-width:600px){
+body{margin:.75rem auto}
+dl{grid-template-columns:1fr;gap:0}dt{margin-top:.5rem}
+.buttons{flex-direction:column;align-items:stretch}.buttons button{width:100%}
+.buttons button[value="not_now"],.buttons button[value="expired"]{margin-left:0;margin-top:.75rem}
+form.send button,form.act.retry button{width:100%}
+.tabs a,.tabs b{display:inline-block;min-height:44px;line-height:44px;padding:0 .4rem}
+.copybtn{width:100%}
+}
 .timeline{margin:.4rem 0}.s-built{background:var(--green)}.s-signed_up{background:var(--green)}.s-new{background:var(--blue)}.s-onboarded{background:var(--green)}</style></head><body>
-<h1>Invite requests</h1><p>Signed in as ${em(auth.email)}</p><nav class="tabs">${nav}</nav>
+<h1>Invite requests</h1><p>Signed in as ${em(auth.email)}</p><nav class="tabs" aria-label="Request stages">${nav}</nav>
 ${listHtml}
 <script nonce="${nonce}">
 // CR-ADMINDARK.1: the saved home-page light/dark choice (bervo-theme), if any; else the device setting.

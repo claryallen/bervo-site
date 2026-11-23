@@ -414,7 +414,7 @@ test("the invite email is the approved copy; the owner link reaches the server o
   const src = readFileSync(path.join(ROOT, "functions/admin/invites.js"), "utf8");
   // CR-WELCOMEEMAIL.1 changed this on purpose: the link box now sits in the Send form (name="link"), so Send posts it
   // for that one email. It is never stored or logged (mail.test.js M3, M6); Copy still fills it in the browser only.
-  assert.match(src, /<form method="post" action="\/admin\/invites" class="send">\n<input type="hidden" name="id" value="\$\{e\(r\.id\)\}">\n<label>Owner link \(paste it here\) <input class="link" name="link" type="url" autocomplete="off" required>/);
+  assert.match(src, /<form method="post" action="\/admin\/invites" class="send">\n<input type="hidden" name="id" value="\$\{e\(r\.id\)\}">\n<label for="ol-\$\{e\(r\.id\)\}">Owner link \(paste it here\) <input id="ol-\$\{e\(r\.id\)\}" class="link" name="link" type="url" autocomplete="off" required>/);
 });
 
 test("approved copy on the page (INVITE_FORM_COPY_V1 §1-4): labels, radios, help, counter, errors; no placeholders left", () => {
@@ -935,7 +935,7 @@ test("admin page: its own buttons pass the CSRF check (Referrer-Policy same-orig
 // ---------- CR-AUTOSLUG.1: automatic address code, two Approve buttons ----------
 const addressBox = (body, id) => {
   const art = body.split(`<article class="req" id="r${id}">`)[1]?.split("</article>")[0] || "";
-  const m = art.match(/<input name="slug"[^>]*value="([^"]*)"/);
+  const m = art.match(/<input [^>]*name="slug"[^>]*value="([^"]*)"/);
   return { art, value: m ? m[1] : null };
 };
 
@@ -1143,7 +1143,7 @@ test("AS12 with a build record: no editable Address code box (plain text + hidde
     db.raw.prepare("UPDATE invite_requests SET status = 'not_now', slug = 'k7m2qx' WHERE id = 1").run();
     setProv(db, 1, st);
     const art = addressBox((await adminGet(db, { jwt, query: "?show=not_now" })).body, 1).art;
-    assert.ok(!/<input name="slug"/.test(art), st + ": no editable box");
+    assert.ok(!/<input (?!type="hidden")[^>]*name="slug"/.test(art), st + ": no editable box");
     assert.ok(art.includes('<input type="hidden" name="slug" value="k7m2qx">'), st + ": hidden field with the earlier slug");
     assert.ok(art.includes("Address code: <b>k7m2qx</b>.bervo.ai"), st + ": shown as plain text");
     const before = rows(db)[0];
@@ -1160,7 +1160,7 @@ test("AS12 with a build record: no editable Address code box (plain text + hidde
   assert.ok(page.body.includes("Approve and build can only use that code."));
   // no build record: the box stays editable and a different code is accepted
   db.raw.prepare("UPDATE invite_requests SET status = 'not_now', slug = 'oldslg' WHERE id = 2").run();
-  assert.ok(/<input name="slug"[^>]*value="oldslg"/.test(addressBox((await adminGet(db, { jwt, query: "?show=not_now" })).body, 2).art));
+  assert.ok(/<input [^>]*name="slug"[^>]*value="oldslg"/.test(addressBox((await adminGet(db, { jwt, query: "?show=not_now" })).body, 2).art));
   await adminPost(db, { id: "2", action: "approve_build", slug: "newslg" }, { jwt });
   assert.deepEqual([rows(db)[1].status, rows(db)[1].slug], ["approved", "newslg"]);
 });

@@ -164,7 +164,7 @@ test("T2 New is the default; ?show=open and ?show=needs (old links) open it; a b
   db.raw.prepare("INSERT INTO invite_mail (request_id, template, status, created_at) VALUES (?, 'invite', 'failed', '2026-11-21T10:00:00Z')").run(b);
   db.raw.prepare("INSERT INTO invite_mail (request_id, template, status, created_at) VALUES (?, 'invite', 'delivered', '2026-11-21T10:00:00Z')").run(c);
   const def = (await adminGet(db)).body;
-  assert.ok(def.includes("<b>New (0)</b>") && ids(def).length === 0, "default tab is New");
+  assert.ok(def.includes('<b aria-current="page">New (0)</b>') && ids(def).length === 0, "default tab is New");
   assert.ok(def.includes('<a href="/admin/invites?show=invited">Invited (3, 1 bounced, 1 not sent)</a>'), "label markers");
   const inv = (await adminGet(db, "?show=invited")).body;
   assert.deepEqual(ids(inv).sort(), [a, b, c].sort());
@@ -172,7 +172,7 @@ test("T2 New is the default; ?show=open and ?show=needs (old links) open it; a b
   assert.ok(!art(inv, c).includes("Needs you:</b>"));
   for (const q of ["?show=open", "?show=needs", "?show=nonsense"]) {
     const old = (await adminGet(db, q)).body;
-    assert.ok(old.includes("<b>New (0)</b>") && ids(old).length === 0, `${q} opens New`);
+    assert.ok(old.includes('<b aria-current="page">New (0)</b>') && ids(old).length === 0, `${q} opens New`);
   }
 });
 
@@ -354,8 +354,8 @@ test("O1 the tab is 'Onboarded' (old ?show=claimed links land there); the button
   const i = seed(db, { status: "invited", slug: "zz-i", invitedAt: "2026-11-21T10:00:00Z" });
   const c = claimed(db);
   const old = (await adminGet(db, "?show=claimed")).body;
-  assert.ok(old.includes("<b>Onboarded (1)</b>") && ids(old).includes(c), "old link opens Onboarded");
-  assert.ok((await adminGet(db, "?show=onboarded")).body.includes("<b>Onboarded (1)</b>"));
+  assert.ok(old.includes('<b aria-current="page">Onboarded (1)</b>') && ids(old).includes(c), "old link opens Onboarded");
+  assert.ok((await adminGet(db, "?show=onboarded")).body.includes('<b aria-current="page">Onboarded (1)</b>'));
   for (const t of ["needs", "all", "signed_up", "invited", "onboarded"]) {
     const body = (await adminGet(db, `?show=${t}`)).body;
     assert.ok(!/Claimed|Mark claimed|claimed\b(?!")/.test(body.replace(/value="claimed"/g, "")), `${t}: no 'claimed' wording`);
@@ -569,7 +569,7 @@ test("A1 tab order and names (CR-ADMINTABS.2); no Needs you tab; query keys unch
   assert.deepEqual(admin.TABS.map(([k]) => k), ["new", "not_now", "approved", "built", "invited", "signed_up", "onboarded", "expired", "all", "server_emails"]);
   const db = makeD1();
   const body = (await adminGet(db)).body;
-  const nav = body.split('<nav class="tabs">')[1].split("</nav>")[0];
+  const nav = body.split('<nav class="tabs" aria-label="Request stages">')[1].split("</nav>")[0];
   assert.ok(!/Needs you/.test(nav) && !/Not now|Server emails|Approved|Built\b|Ready to send|Invite sent|Emails sent/.test(nav), "no old tab names");
 });
 
@@ -582,7 +582,7 @@ test("A2 tab label markers: Build waiting (2, 1 failed), Ready (1), New count; a
   seed(db, { status: "new" });
   const body = (await adminGet(db)).body;
   assert.ok(body.includes("Build waiting (3, 1 failed, 1 stopped)"), "build waiting marker");
-  assert.ok(body.includes("Ready (1)") && body.includes("<b>New (1)</b>"));
+  assert.ok(body.includes("Ready (1)") && body.includes('<b aria-current="page">New (1)</b>'));
   assert.ok(body.includes("Deferred (0)") && body.includes("Signed up (0)"));
 });
 
