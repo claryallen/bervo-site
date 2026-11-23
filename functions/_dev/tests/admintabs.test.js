@@ -121,7 +121,7 @@ function expectedTabs(status, build, signedUp) {
   return { stage, needs };
 }
 
-test("T1 every status x build state (and signed up) lives in exactly one stage tab, plus All; Needs you holds new, built and failed/stopped builds (not signed up: CR-ONBOARDEDTAB.1)", async () => {
+test("T1 every status x build state (and signed up) lives in exactly one stage tab, plus All; each request that needsYou() flags shows its warning line in its own tab and the tab label carries a marker (CR-ADMINTABS.2: no Needs you tab)", async () => {
   const db = makeD1();
   const cases = [];
   for (const status of STATUSES) {
@@ -136,7 +136,7 @@ test("T1 every status x build state (and signed up) lives in exactly one stage t
   }
   const cid = claimed(db);
   cases.push({ id: cid, status: "onboarded", build: null, signedUp: false });
-  const tabs = ["needs", "new", "approved", "built", "invited", "signed_up", "not_now", "expired", "onboarded", "all"];
+  const tabs = ["new", "approved", "built", "invited", "signed_up", "not_now", "expired", "onboarded", "all"];
   const got = {};
   for (const t of tabs) got[t] = new Set(ids((await adminGet(db, `?show=${t}`)).body));
   for (const c of cases) {
@@ -144,12 +144,18 @@ test("T1 every status x build state (and signed up) lives in exactly one stage t
     const label = `${c.status}/${c.build}/${c.signedUp ? "signed" : "-"}`;
     for (const t of ["new", "approved", "built", "invited", "signed_up", "not_now", "expired", "onboarded"])
       assert.equal(got[t].has(c.id), t === stage, `${label} in ${t}?`);
-    assert.equal(got.needs.has(c.id), needs, `${label} in Needs you?`);
+    const card = art((await adminGet(db, `?show=${stage}`)).body, c.id);
+    assert.equal(card.includes("Needs you:</b>"), needs, `${label} warning line on its card`);
     assert.ok(got.all.has(c.id), `${label} in All`);
+  }
+  // every request needing Allen is counted in its tab's label marker
+  for (const [t, want] of [["new", 1], ["built", 1]]) {
+    const n = cases.filter((c) => expectedTabs(c.status, c.build, c.signedUp).stage === t).length;
+    assert.ok((await adminGet(db)).body.includes(`${t === "new" ? "New" : "Ready to send"} (${n})`), `${t} label count`);
   }
 });
 
-test("T2 Needs you is the default; ?show=open (old links) opens it; a bounced or failed email puts an invited/approved request there", async () => {
+test("T2 New is the default; ?show=open and ?show=needs (old links) open it; a bounced or failed email shows on the invited card and in the Invite sent label", async () => {
   const db = makeD1();
   const a = seed(db, { status: "invited", slug: "zz-a", invitedAt: "2026-11-21T10:00:00Z" });
   const b = seed(db, { status: "invited", slug: "zz-b", invitedAt: "2026-11-21T10:00:00Z" });
@@ -158,12 +164,16 @@ test("T2 Needs you is the default; ?show=open (old links) opens it; a bounced or
   db.raw.prepare("INSERT INTO invite_mail (request_id, template, status, created_at) VALUES (?, 'invite', 'failed', '2026-11-21T10:00:00Z')").run(b);
   db.raw.prepare("INSERT INTO invite_mail (request_id, template, status, created_at) VALUES (?, 'invite', 'delivered', '2026-11-21T10:00:00Z')").run(c);
   const def = (await adminGet(db)).body;
-  assert.ok(def.includes("<b>Needs you (2)</b>"), "default tab, with its count");
-  assert.deepEqual(ids(def).sort(), [a, b].sort());
-  assert.ok(art(def, a).includes("An email to them bounced") && art(def, b).includes("The last email was not sent"));
-  const old = (await adminGet(db, "?show=open")).body;
-  assert.ok(old.includes("<b>Needs you (2)</b>") && ids(old).length === 2, "old ?show=open link");
-  assert.ok((await adminGet(db, "?show=nonsense")).body.includes("<b>Needs you (2)</b>"));
+  assert.ok(def.includes("<b>New (0)</b>") && ids(def).length === 0, "default tab is New");
+  assert.ok(def.includes('<a href="/admin/invites?show=invited">Invite sent (3, 1 bounced, 1 not sent)</a>'), "label markers");
+  const inv = (await adminGet(db, "?show=invited")).body;
+  assert.deepEqual(ids(inv).sort(), [a, b, c].sort());
+  assert.ok(art(inv, a).includes("An email to them bounced") && art(inv, b).includes("The last email was not sent"));
+  assert.ok(!art(inv, c).includes("Needs you:</b>"));
+  for (const q of ["?show=open", "?show=needs", "?show=nonsense"]) {
+    const old = (await adminGet(db, q)).body;
+    assert.ok(old.includes("<b>New (0)</b>") && ids(old).length === 0, `${q} opens New`);
+  }
 });
 
 test("T3 one nonce script on every tab; the copy-it-yourself box is always folded under 'Send it yourself instead'; no em dashes", async () => {
@@ -172,7 +182,7 @@ test("T3 one nonce script on every tab; the copy-it-yourself box is always folde
   const bu = seed(db, { status: "approved", slug: "zz-bu" }); setProv(db, bu, "ready");
   const inv = seed(db, { status: "invited", slug: "zz-in", invitedAt: "2026-11-21T10:00:00Z" });
   seed(db, { status: "new" }); seed(db, { status: "not_now" }); claimed(db);
-  for (const t of ["needs", "new", "approved", "built", "invited", "signed_up", "not_now", "expired", "onboarded", "all", "server_emails"]) {
+  for (const t of ["new", "approved", "built", "invited", "signed_up", "not_now", "expired", "onboarded", "all", "server_emails"]) {
     const { status, body } = await adminGet(db, `?show=${t}`);
     assert.equal(status, 200, t);
     assert.equal((body.match(/<script/g) || []).length, 1, `${t}: only the page's own nonce script`);
@@ -186,12 +196,12 @@ test("T3 one nonce script on every tab; the copy-it-yourself box is always folde
   for (const id of [ap, bu, inv]) assert.ok(art(all, id).includes('<details class="other"><summary>Send it yourself instead</summary>'), `#${id} has the fold`);
 });
 
-test("T4 cards: a summary line always shown; form answers + about + note fold, open only on New and Needs you; compact one-line rows on Not now / Expired / Claimed / All", async () => {
+test("T4 cards: a summary line always shown; form answers + about + note fold, open only on New; compact one-line rows on Deferred / Expired / Claimed / All", async () => {
   const db = makeD1();
   const n = seed(db, { status: "new" });
   const ap = seed(db, { status: "approved", slug: "zz-ap" });
   const nn = seed(db, { status: "not_now" });
-  for (const [t, id, open] of [["needs", n, true], ["new", n, true], ["approved", ap, false]]) {
+  for (const [t, id, open] of [["new", n, true], ["approved", ap, false]]) {
     const a = art((await adminGet(db, `?show=${t}`)).body, id);
     assert.ok(a.includes('<p class="sum">Dedicated $99/mo · America/Chicago · '), `${t}: summary line`);
     assert.ok(a.includes(`<details class="answers"${open ? " open" : ""}><summary>`), `${t}: answers ${open ? "open" : "closed"}`);
@@ -292,13 +302,14 @@ test("S5 0009 adds one nullable date column and nothing else", () => {
   assert.equal(sqlText.trim(), "ALTER TABLE invite_requests ADD COLUMN signed_up_at TEXT;");
 });
 
-test("T8 a signed-up request with an old bounce: not under Needs you (CR-ONBOARDEDTAB.1; it waits in Signed up)", async () => {
+test("T8 a signed-up request with an old bounce: no warning, no marker on Invite sent (CR-ONBOARDEDTAB.1; it waits in Signed up)", async () => {
   const db = makeD1();
   const id = seed(db, { status: "invited", slug: "zz-s", invitedAt: "2026-11-19T10:00:00Z" });
   db.raw.prepare("INSERT INTO invite_mail (request_id, template, status, created_at) VALUES (?, 'reminder_day3', 'bounced', '2026-11-22T10:00:00Z')").run(id);
-  assert.ok(art((await adminGet(db)).body, id).includes("An email to them bounced"), "before: the bounce");
+  assert.ok(art((await adminGet(db, "?show=invited")).body, id).includes("An email to them bounced"), "before: the bounce");
+  assert.ok((await adminGet(db)).body.includes("Invite sent (1, 1 bounced)"), "before: the label marker");
   db.raw.prepare("UPDATE invite_requests SET signed_up_at = ? WHERE id = ?").run("2026-11-23T10:00:00Z", id);
-  assert.ok(!ids((await adminGet(db)).body).includes(id), "not in Needs you");
+  assert.ok((await adminGet(db)).body.includes("Invite sent (0)"), "no marker once signed up");
   const a = art((await adminGet(db, "?show=signed_up")).body, id);
   assert.ok(!a.includes("Needs you:</b>") && !a.includes("An email to them bounced"));
 });
@@ -551,4 +562,38 @@ test("O10 0011 (the one-time sweep of requests onboarded under the old trim): da
   assert.deepEqual({ ...db.raw.prepare(previews[0]).get() }, { onboarded: 1, with_dates_or_cohort: 0 });
   const stmts = SWEEP.split("\n").filter((l) => l.trim() && !l.startsWith("--"));
   assert.ok(stmts.every((l) => /^(UPDATE|DELETE|  )/.test(l)), "only UPDATE / DELETE statements; no schema change");
+});
+
+test("A1 tab order and names (CR-ADMINTABS.2); no Needs you tab; query keys unchanged", async () => {
+  assert.deepEqual(admin.TABS.map(([, l]) => l), ["New", "Deferred", "Build waiting", "Ready to send", "Invite sent", "Signed up", "Onboarded", "Expired", "All", "Emails sent"]);
+  assert.deepEqual(admin.TABS.map(([k]) => k), ["new", "not_now", "approved", "built", "invited", "signed_up", "onboarded", "expired", "all", "server_emails"]);
+  const db = makeD1();
+  const body = (await adminGet(db)).body;
+  const nav = body.split('<nav class="tabs">')[1].split("</nav>")[0];
+  assert.ok(!/Needs you/.test(nav) && !/Not now|Server emails|Approved|Built\b|Invited/.test(nav), "no old tab names");
+});
+
+test("A2 tab label markers: Build waiting (2, 1 failed), Ready to send (1), New count; all tabs lose none", async () => {
+  const db = makeD1();
+  const f = seed(db, { status: "approved", slug: "zz-f" }); setProv(db, f, "failed");
+  const w = seed(db, { status: "approved", slug: "zz-w" }); setProv(db, w, "building");
+  const r = seed(db, { status: "approved", slug: "zz-r" }); setProv(db, r, "ready");
+  const s2 = seed(db, { status: "approved", slug: "zz-s" }); setProv(db, s2, "stopped");
+  seed(db, { status: "new" });
+  const body = (await adminGet(db)).body;
+  assert.ok(body.includes("Build waiting (3, 1 failed, 1 stopped)"), "build waiting marker");
+  assert.ok(body.includes("Ready to send (1)") && body.includes("<b>New (1)</b>"));
+  assert.ok(body.includes("Deferred (0)") && body.includes("Signed up (0)"));
+});
+
+test("A3 the pointer line appears only when New is empty and another tab needs Allen, and names that tab", async () => {
+  const db = makeD1();
+  assert.ok(!(await adminGet(db)).body.includes("Nothing new to approve"), "nothing needs Allen: no pointer");
+  const id = seed(db, { status: "approved", slug: "zz-f" }); setProv(db, id, "failed");
+  const body = (await adminGet(db)).body;
+  assert.ok(body.includes("Nothing new to approve. Build waiting has a request that needs you.") && body.includes('href="/admin/invites?show=approved"'));
+  assert.ok(!(await adminGet(db, "?show=approved")).body.includes("Nothing new to approve"), "only on New");
+  seed(db, { status: "new" });
+  assert.ok(!(await adminGet(db)).body.includes("Nothing new to approve"), "New not empty: no pointer");
+  assert.ok(!/\[GTM/.test(readFileSync(path.join(ROOT, "functions/admin/invites.js"), "utf8")));
 });

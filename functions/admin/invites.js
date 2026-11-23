@@ -19,6 +19,7 @@
 // the server when the page is drawn: this page's CSP allows no script but its own nonce one). "Approve and build"
 // approves with the code in the box (refused with a message when it is empty, invalid, reserved or already used);
 // "Approve only" approves with no slug, so the picker builds nothing.
+// CR-ADMINTABS.2 (Allen 11-23) replaced the Needs you tab: New is the default and the tab names changed (see TABS below).
 // CR-ADMINTABS.1 (Allen 11-23): tabs by stage (TABS, stageOf, needsYou, inTab): Needs you (default; old ?show=open
 // links land here) · New · Approved (not built yet) · Built (ready, invite not sent) · Invited · Signed up (0009) · Not
 // now · Expired · Claimed · All · Server emails. Each card: a summary line, then the one action it needs, then the row
@@ -198,13 +199,15 @@ function renderBuild(r, prov, links = {}, mailOff = null) {
 
 // CR-ADMINTABS.1 (Allen 11-23): a request's life as tabs. stageOf() is the one tab a request lives in; needsYou() says
 // why (if at all) it is also under Needs you, the default tab. Both read only what the page already loads.
-export const TABS = [["needs", "Needs you"], ["new", "New"], ["approved", "Approved"], ["built", "Built"], ["invited", "Invited"],
-  ["signed_up", "Signed up"], ["not_now", "Not now"], ["expired", "Expired"], ["onboarded", "Onboarded"], ["all", "All"],
-  ["server_emails", "Server emails"]];
+// CR-ADMINTABS.2 (Allen 11-23): no "Needs you" tab. One tab per stage, in this order; the query keys are unchanged so old
+// links work. A request's needsYou() reason stays on its card; tabLabel() puts a marker on the tab that holds it.
+export const TABS = [["new", "New"], ["not_now", "Deferred"], ["approved", "Build waiting"], ["built", "Ready to send"],
+  ["invited", "Invite sent"], ["signed_up", "Signed up"], ["onboarded", "Onboarded"], ["expired", "Expired"], ["all", "All"],
+  ["server_emails", "Emails sent"]];
 const TAB_KEYS = TABS.map(([k]) => k);
-const TAB_ALIASES = { open: "needs", claimed: "onboarded" };   // old links: ?show=open, ?show=claimed
+const TAB_ALIASES = { open: "new", needs: "new", claimed: "onboarded" };   // old links: ?show=open / needs (now New), ?show=claimed
 const COMPACT_TABS = new Set(["not_now", "expired", "onboarded", "all"]);
-const OPEN_ANSWERS_TABS = new Set(["needs", "new"]);
+const OPEN_ANSWERS_TABS = new Set(["new"]);
 const STAGE_WORDS = { new: "new", approved: "approved", built: "built", invited: "invited", signed_up: "signed up",
   not_now: "not now", expired: "expired", onboarded: "onboarded" };
 // Allen 11-23 added "keep email too" after the spec's wording; the tooltip names it.
@@ -241,8 +244,36 @@ export function needsYou(r, prov, mails = []) {
 
 export function inTab(tab, r, prov, mails) {
   if (tab === "all") return true;
-  if (tab === "needs") return !!needsYou(r, prov, mails);
   return stageOf(r, prov) === tab;
+}
+
+// CR-ADMINTABS.2: the marker on a tab label. New and Ready to send always need Allen, so their count is enough; Build
+// waiting and Invite sent add what is wrong ("Build waiting (2, 1 failed)"). Returns the text inside the brackets.
+export function tabMarker(key, rows) {
+  const n = rows.length;
+  if (key === "all" || key === "server_emails") return "";
+  const parts = [String(n)];
+  if (key === "approved" || key === "invited") {
+    const c = { failed: 0, stopped: 0, bounced: 0, "not sent": 0 };
+    for (const { r, prov, mails } of rows) {
+      if (key === "approved") {
+        if (prov && prov.state === "failed") c.failed++;
+        else if (prov && prov.state === "stopped") c.stopped++;
+      } else {
+        const list = mails || [];
+        if (list.some((m) => m.status === "bounced" || m.status === "complained")) c.bounced++;
+        else if (list.length && list[0].status === "failed") c["not sent"]++;
+      }
+    }
+    for (const [w, k] of Object.entries(c)) if (k) parts.push(`${k} ${w}`);
+  }
+  return parts.join(", ");
+}
+
+// CR-ADMINTABS.2: shown at the top of New when New is empty and another tab holds a request that needs Allen.
+// The wording is a GTM draft (GTM has not given its word yet); this is the plain fallback and it names the tab.
+export function pointerLine(tabLabel) {
+  return `Nothing new to approve. ${tabLabel} has a request that needs you.`;
 }
 
 // Invited: when the reminders fall and when the invitation ends (the same clock as reminderDue: the newest accepted
@@ -265,7 +296,7 @@ function renderTimeline(r, mails = []) {
     `Invitation ends ${at(14)}</p>`;
 }
 
-function renderRow(r, mails = [], mailOff = null, flash = "", nowMs = Date.now(), prov = null, links = {}, code = "", tab = "needs") {
+function renderRow(r, mails = [], mailOff = null, flash = "", nowMs = Date.now(), prov = null, links = {}, code = "", tab = "new") {
   // Allen 11-23: the paste-form Send stays dimmed while the Mini builds (its link arrives as "Invite link ready"),
   // and otherwise until a link is pasted (the page script turns it on).
   const building = !!prov && !["ready", "failed", "stopped"].includes(prov.state) && !(links && links.invite);
@@ -437,7 +468,7 @@ export async function onRequestGet(context) {
   const mailOff = sendingOff(env);
   // CR-ADMINTABS.1: every request is read (newest 300) so each tab and its count come from one rule (inTab).
   const asked = url.searchParams.get("show") || "";
-  let f = TAB_KEYS.includes(asked) ? asked : TAB_ALIASES[asked] || "needs";
+  let f = TAB_KEYS.includes(asked) ? asked : TAB_ALIASES[asked] || "new";
   const { results: all } = await env.DB.prepare("SELECT * FROM invite_requests ORDER BY id DESC LIMIT 300").all();
   const allIds = all.map((r) => r.id);
   const mails = await mailsFor(env.DB, allIds);
@@ -448,7 +479,8 @@ export async function onRequestGet(context) {
   // A button's answer (?sent=...&r=<id>) opens the tab its request is in now, so the message is never on a hidden card.
   const flashRow = url.searchParams.get("r") && !TAB_KEYS.includes(asked) ? all.find((r) => r.id === Number(url.searchParams.get("r"))) : null;
   if (flashRow && !inTab(f, flashRow, P(flashRow), M(flashRow))) f = stageOf(flashRow, P(flashRow));
-  const count = (k) => all.filter((r) => inTab(k, r, P(r), M(r))).length;
+  const inTabRows = (k) => all.filter((r) => inTab(k, r, P(r), M(r))).map((r) => ({ r, prov: P(r), mails: M(r) }));
+  const flagged = (k) => inTabRows(k).filter((x) => needsYou(x.r, x.prov, x.mails));
   const results = f === "server_emails" ? [] : all.filter((r) => inTab(f, r, P(r), M(r)));
   const flashId = Number(url.searchParams.get("r"));
   const flash = Object.hasOwn(SENT_FLASH, url.searchParams.get("sent") || "") ? SENT_FLASH[url.searchParams.get("sent")] : "";
@@ -465,15 +497,22 @@ export async function onRequestGet(context) {
   }
   const nonce = [...crypto.getRandomValues(new Uint8Array(16))].map((b) => b.toString(16).padStart(2, "0")).join("");
   const nav = TABS.map(([k, label]) => {
-    const n = k === "server_emails" || k === "all" ? "" : ` (${count(k)})`;
+    const m = tabMarker(k, inTabRows(k));
+    const n = m ? ` (${m})` : "";
     return k === f ? `<b>${label}${n}</b>` : `<a href="/admin/invites?show=${k}">${label}${n}</a>`;
   }).join(" · ");
   const draw = (r) => {
     const card = renderRow(r, M(r), mailOff, r.id === flashId ? flash : "", nowMs, P(r), links.get(r.id) || {}, codes.get(r.id) || "", f);
     return COMPACT_TABS.has(f) ? renderCompact(r, P(r), card) : card;
   };
-  const listHtml = f === "server_emails" ? (renderServerMail(await serverMails(env.DB)) || "<p>No account emails yet.</p>")
-    : results.length ? results.map(draw).join("\n") : "<p>None.</p>";
+  // CR-ADMINTABS.2: New empty, and some other tab needs Allen: say which (the first one in tab order).
+  let pointer = "";
+  if (f === "new" && !results.length) {
+    const other = TABS.find(([k]) => k !== "new" && k !== "all" && k !== "server_emails" && flagged(k).length);
+    if (other) pointer = `<p class="need">${escapeHtml(pointerLine(other[1]))} <a href="/admin/invites?show=${other[0]}">Open ${escapeHtml(other[1])}</a></p>\n`;
+  }
+  const listHtml = pointer + (f === "server_emails" ? (renderServerMail(await serverMails(env.DB)) || "<p>No account emails yet.</p>")
+    : results.length ? results.map(draw).join("\n") : "<p>None.</p>");
   const body = `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">
 <title>Invite requests · Bervo admin</title>
