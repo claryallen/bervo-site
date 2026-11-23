@@ -18,12 +18,28 @@
 //                                             Run-independent (no run_id). Already recorded -> 200 "already". Needs
 //                                             migration 0009; before it the column is missing -> 503 not_configured
 //                                             (the Mini retries each run).
+//                                             CR-ONBOARDEDTAB.1 (Allen 11-23): optional signed_up_at, the time the owner
+//                                             set the password (YYYY-MM-DDTHH:MM:SS[.mmm]Z, from users.password_changed_at
+//                                             on their server). Clamped: never later than now, never before invited_at
+//                                             (else created_at). The first report stores it (no field: now, as before);
+//                                             a later report only ever moves a stored date EARLIER ("corrected"; an
+//                                             invited or onboarded request), else "already". A bad value -> 400.
 // A failed row is never claimable: only the admin page's Retry (failed -> queued) makes it buildable again.
 // Signed like /api/account-mail with its own secret (BERVO_PROVISION_SECRET; 5 minutes; each signature once).
 import { MAX_BYTES, NOTE_CODES, reply, RUN_ID_RE, STEPS, verifySigned } from "../_lib/provision.js";
 
 const ACTIONS = ["claim", "step", "ready", "failed", "waiting_cap", "stopped", "notes", "signed_up"];
 const NO_RUN_ID = ["waiting_cap", "signed_up"];
+const SIGNED_UP_AT_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?Z$/;   // UTC only: never a local time
+
+// CR-ONBOARDEDTAB.1: the reported time, clamped to [invited_at (else created_at), now]; null when not reported.
+export function clampSignedUp(reported, row, nowMs) {
+  if (reported == null) return null;
+  let t = Math.min(Date.parse(reported), nowMs);
+  const floor = Date.parse(row?.invited_at || row?.created_at || "");
+  if (Number.isFinite(floor)) t = Math.max(t, floor);
+  return new Date(t).toISOString();
+}
 
 export async function onRequestPost(context) {
   const { request, env } = context;
@@ -52,15 +68,29 @@ export async function onRequestPost(context) {
   const buildable = "EXISTS (SELECT 1 FROM invite_requests WHERE id = ? AND status = 'approved' AND slug IS NOT NULL)";
   let changes = 0;
   if (action === "signed_up") {
+    const given = body?.signed_up_at;
+    if (given != null && !(typeof given === "string" && SIGNED_UP_AT_RE.test(given) && Number.isFinite(Date.parse(given))))
+      return reply(400, { ok: false, result: "bad_signed_up_at" });
     let result;
     try {
-      const r = await db.prepare("UPDATE invite_requests SET signed_up_at = ? WHERE id = ? AND status = 'invited' AND signed_up_at IS NULL")
-        .bind(now, id).run();
-      changes = Number(r?.meta?.changes ?? 0);
-      if (changes !== 1) {
-        const row = await db.prepare("SELECT signed_up_at FROM invite_requests WHERE id = ?").bind(id).first();
-        result = row && row.signed_up_at ? "already" : "not_allowed";
-      } else result = "recorded";
+      const row = await db.prepare("SELECT status, signed_up_at, invited_at, created_at FROM invite_requests WHERE id = ?").bind(id).first();
+      const at = clampSignedUp(given ?? null, row, nowMs);
+      if (row && !row.signed_up_at) {
+        const r = await db.prepare("UPDATE invite_requests SET signed_up_at = ? WHERE id = ? AND status = 'invited' AND signed_up_at IS NULL")
+          .bind(at || now, id).run();
+        changes = Number(r?.meta?.changes ?? 0);
+      }
+      if (changes === 1) result = "recorded";
+      else {
+        const cur = await db.prepare("SELECT status, signed_up_at FROM invite_requests WHERE id = ?").bind(id).first();
+        if (!cur || !cur.signed_up_at) result = "not_allowed";
+        else if (at && (cur.status === "invited" || cur.status === "claimed") && Date.parse(at) < Date.parse(cur.signed_up_at)) {
+          // only ever earlier; the guard on the old value means two reports can never move it back later
+          const r = await db.prepare("UPDATE invite_requests SET signed_up_at = ? WHERE id = ? AND signed_up_at = ? AND status IN ('invited', 'claimed')")
+            .bind(at, id, cur.signed_up_at).run();
+          result = Number(r?.meta?.changes ?? 0) === 1 ? "corrected" : "already";
+        } else result = "already";
+      }
     } catch {
       return reply(503, { ok: false, result: "not_configured" });   // the 0009 column is missing
     }

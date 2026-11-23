@@ -12,6 +12,30 @@ export const TRIMMED_COLUMNS = ["first_name", "last_name", "email", "has_assista
   "email_providers", "other_email", "computers", "phone", "heard_from", "heard_detail", "timezone", "about", "referral", "slug", "note"];
 export const OTHER_EMAIL_MAX = 40;             // "What other email account(s)?" (shown when Other is ticked; 0003 migration)
 export const TRIM_SET = TRIMMED_COLUMNS.map((c) => `${c} = NULL`).join(", ");
+// CR-ONBOARDEDTAB.1 (Allen 11-23, "keep first name + initial and address"): Mark onboarded (stored status 'claimed')
+// also writes these two, in the same UPDATE as the trim (migration 0010; before it the trim runs without them).
+// kept_name = first name + last initial ("Ashley C"); kept_host = the address code ("reh1120" -> reh1120.bervo.ai);
+// kept_email = their email address (Allen 11-23, "yes, keep email too").
+export const KEPT_COLUMNS = ["kept_name", "kept_host", "kept_email"];
+export const KEPT_NAME_MAX = 40;               // 0010's CHECK
+export const KEPT_HOST_MAX = 63;               // 0010's CHECK (a slug is at most 31)
+export const KEPT_EMAIL_MAX = 254;             // 0010's CHECK (the form's own limit)
+
+// -> { kept_name, kept_host, kept_email } from a full (not yet trimmed) request row; any may be null.
+export function keptLabel(row) {
+  const first = stripFormatChars(String(row?.first_name ?? "")).replace(/\s+/g, " ").trim();
+  const initial = [...stripFormatChars(String(row?.last_name ?? "")).trim()][0] || "";
+  let name = null;
+  if (first) {
+    const tail = initial ? ` ${initial.toUpperCase()}` : "";
+    name = [...first].slice(0, KEPT_NAME_MAX - [...tail].length).join("").trim() + tail;
+  }
+  const slug = String(row?.slug ?? "").trim().toLowerCase();
+  const host = SLUG_RE.test(slug) && slug.length <= KEPT_HOST_MAX ? slug : null;
+  const email = String(row?.email ?? "").trim().toLowerCase();
+  const kept_email = email.length >= 3 && email.length <= KEPT_EMAIL_MAX && EMAIL_RE.test(email) ? email : null;
+  return { kept_name: name || null, kept_host: host, kept_email };
+}
 export const MIN_FILL_MS = 2000;               // a form filled faster than this is a bot (spec §A)
 export const REFERRALS = ["allen"];            // bervo.ai/invite?from=allen -> "personal invite" (display only)
 export const PROVIDERS = ["google", "microsoft", "other"];   // onboarding.py's account providers; stored in this order

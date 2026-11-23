@@ -26,7 +26,13 @@
 // folded under "Send it yourself instead". A button's answer (?sent=..&r=<id>) opens the tab its request is in now.
 // CR-SIGNUPSIGNAL.1: "Signed up <time>" from invite_requests.signed_up_at (written by /api/provision-state, action
 // signed_up, from the Mini's picker); before migration 0009 the column is absent and nothing shows as signed up.
-import { checkAccess, escapeHtml, pruneOld, redirect, stripFormatChars, TRIM_SET } from "../_lib/invites.js";
+// CR-ONBOARDEDTAB.1 (Allen 11-23): Signed up = the owner set a password (automatic); Onboarded = Allen says the customer
+// is in use. The tab "Claimed" is now "Onboarded" (old ?show=claimed links land there; the stored status stays
+// 'claimed'), the button is "Mark onboarded", a signed-up request is no longer under Needs you (it waits in Signed up),
+// its reminder line reads "Reminders stopped (signed up)", and Mark onboarded keeps first name + last initial and the
+// address (kept_name / kept_host, migration 0010; before it the trim runs exactly as before), and their email address
+// (kept_email, Allen 11-23 "yes, keep email too"; shown only inside the card's folded details, never the summary line).
+import { checkAccess, escapeHtml, keptLabel, pruneOld, redirect, stripFormatChars, TRIM_SET } from "../_lib/invites.js";
 import { friendlyFromDirect, friendlyLink, GO_DEMO_HOSTS, GO_LABEL_RE, GO_PAGES, GO_RESERVED } from "../_lib/golink.js";
 import { inviteBody, linkMatchesSlug, needsIphoneNoMacNote, MailError, reminderDue, reminderExpiryDate, sendingOff, sendTemplate, TEMPLATES } from "../_lib/mail.js";
 import { addressProblem, addressTaken, newCode, takenAddresses } from "../_lib/addresscode.js";
@@ -63,7 +69,8 @@ const TRANSITIONS = {
   approve: { to: "approved", from: ["new", "not_now"], stamp: "approved_at" },
   not_now: { to: "not_now", from: ["new", "approved"], stamp: null },
   invited: { to: "invited", from: ["approved"], stamp: "invited_at" },
-  // The customer is live: the row is trimmed to id, cohort, status and dates in the same UPDATE (Allen 11-10).
+  // Mark onboarded (CR-ONBOARDEDTAB.1; the action and stored value stay "claimed"): the customer is in use; the row is
+  // trimmed to id, cohort, plan, status and dates in the same UPDATE (Allen 11-10), keeping First L and the address (0010).
   claimed: { to: "claimed", from: ["invited"], stamp: null, trim: true },
   // The invitation ran out unused (14 days): deleted 90 days later with the not-now rows.
   expired: { to: "expired", from: ["invited"], stamp: null },
@@ -187,20 +194,24 @@ function renderBuild(r, prov, links = {}, mailOff = null) {
 // CR-ADMINTABS.1 (Allen 11-23): a request's life as tabs. stageOf() is the one tab a request lives in; needsYou() says
 // why (if at all) it is also under Needs you, the default tab. Both read only what the page already loads.
 export const TABS = [["needs", "Needs you"], ["new", "New"], ["approved", "Approved"], ["built", "Built"], ["invited", "Invited"],
-  ["signed_up", "Signed up"], ["not_now", "Not now"], ["expired", "Expired"], ["claimed", "Claimed"], ["all", "All"],
+  ["signed_up", "Signed up"], ["not_now", "Not now"], ["expired", "Expired"], ["onboarded", "Onboarded"], ["all", "All"],
   ["server_emails", "Server emails"]];
 const TAB_KEYS = TABS.map(([k]) => k);
-const TAB_ALIASES = { open: "needs" };                    // old links: ?show=open
-const COMPACT_TABS = new Set(["not_now", "expired", "claimed", "all"]);
+const TAB_ALIASES = { open: "needs", claimed: "onboarded" };   // old links: ?show=open, ?show=claimed
+const COMPACT_TABS = new Set(["not_now", "expired", "onboarded", "all"]);
 const OPEN_ANSWERS_TABS = new Set(["needs", "new"]);
 const STAGE_WORDS = { new: "new", approved: "approved", built: "built", invited: "invited", signed_up: "signed up",
-  not_now: "not now", expired: "expired", claimed: "claimed" };
+  not_now: "not now", expired: "expired", onboarded: "onboarded" };
+// Allen 11-23 added "keep email too" after the spec's wording; the tooltip names it.
+const ONBOARD_TIP = "This customer is in use. Erases their form details on bervo.ai; keeps first name, last initial, their Bervo address and their email address.";
 
 // approved: not built yet (no build, queued, waiting, building, failed, stopped); built: approved and the build is
-// ready (the invite is not sent: sending marks it invited); signed up: invited and the owner set a password (0009).
+// ready (the invite is not sent: sending marks it invited); signed up: invited and the owner set a password (0009);
+// onboarded: stored status 'claimed' (CR-ONBOARDEDTAB.1).
 export function stageOf(r, prov) {
   if (r.status === "approved") return prov && prov.state === "ready" ? "built" : "approved";
   if (r.status === "invited") return r.signed_up_at ? "signed_up" : "invited";
+  if (r.status === "claimed") return "onboarded";
   return r.status;
 }
 
@@ -211,7 +222,9 @@ export function needsYou(r, prov, mails = []) {
   if (stage === "built") return "Server ready: send the invite email.";
   if (r.status === "approved" && prov && prov.state === "failed") return `Server build failed at ${prov.step || "an unknown step"}: press Retry.`;
   if (r.status === "approved" && prov && prov.state === "stopped") return "Server build stopped: approve it again to continue, or tear the server down.";
-  if (stage === "signed_up") return "Signed up: press Mark claimed once they are set up.";   // beats an old bounce
+  // CR-ONBOARDEDTAB.1: a signed-up request is not under Needs you (it waits in Signed up until Mark onboarded), and an
+  // old bounce on it no longer brings it back (they have their link: they used it).
+  if (stage === "signed_up") return "";
   if (r.status === "approved" || r.status === "invited") {
     const list = mails || [];
     if (list.some((m) => m.status === "bounced" || m.status === "complained"))
@@ -232,6 +245,11 @@ export function inTab(tab, r, prov, mails) {
 function renderTimeline(r, mails = []) {
   if (r.status !== "invited") return "";
   const invites = (mails || []).filter((m) => m.template === "invite" && m.status !== "failed");
+  // CR-ONBOARDEDTAB.1: once signed up the reminders stop (reminderDue), so their dates are not shown.
+  if (r.signed_up_at) {
+    const lastS = invites.length ? [...invites].sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0] : null;
+    return `<p class="timeline">${lastS ? `Invite email: <span class="ms ms-${escapeHtml(lastS.status)}">${escapeHtml(lastS.status)}</span> · ` : ""}Reminders stopped (signed up)</p>`;
+  }
   const baseMs = invites.length ? Math.max(...invites.map((m) => Date.parse(m.created_at))) : Date.parse(r.invited_at || "");
   if (!Number.isFinite(baseMs)) return "";
   const at = (d) => fmt(new Date(baseMs + d * 86400000).toISOString());
@@ -273,25 +291,28 @@ function renderRow(r, mails = [], mailOff = null, flash = "", nowMs = Date.now()
   }
   // Allen 11-23: every row button says what it does; Mark invited only where you would send by hand.
   const autoSend = !!(links && links.invite) && !mailOff;
-  // CR-ADMINTABS.1: Signed up puts Mark claimed first (it is the one button that request needs).
-  if (TRANSITIONS.claimed.from.includes(r.status) && r.signed_up_at) actions.push(btnT("claimed", "Mark claimed (trims this request)",
-    "They have signed up. Mark claimed once they are set up: the request is trimmed to its number, cohort, plan and dates."));
+  // CR-ADMINTABS.1: Signed up puts Mark onboarded first (it is the one button that request needs). CR-ONBOARDEDTAB.1:
+  // "Mark claimed (trims this request)" is now "Mark onboarded" (the action value stays "claimed").
+  if (TRANSITIONS.claimed.from.includes(r.status) && r.signed_up_at) actions.push(btnT("claimed", "Mark onboarded", ONBOARD_TIP));
   if (TRANSITIONS.not_now.from.includes(r.status)) actions.push(btnT("not_now", "Not now",
     building ? "Withdraw this request. The server build stops at its next step; the server is kept (tear it down by hand if needed)."
       : prov ? "Decline or withdraw this request. Its server is kept (tear it down by hand if needed)."
         : "Decline this request for now. You can approve it later."));
   if (TRANSITIONS.invited.from.includes(r.status) && !autoSend) actions.push(btnT("invited", "Mark invited",
     "Use this only if you sent the invite yourself (by copying the email below). Send invite email marks it invited for you."));
-  if (TRANSITIONS.claimed.from.includes(r.status) && !r.signed_up_at) actions.push(btnT("claimed", "Mark claimed (trims this request)",
-    "Use this once the customer is live: the request is trimmed to its number, cohort, plan and dates."));
+  if (TRANSITIONS.claimed.from.includes(r.status) && !r.signed_up_at) actions.push(btnT("claimed", "Mark onboarded", ONBOARD_TIP));
   if (TRANSITIONS.expired.from.includes(r.status)) actions.push(btnT("expired", "Mark expired",
     "The invitation ran out unused. The request is deleted 90 days later."));
   if (r.status === "claimed") {
-    return `<article class="req" id="r${e(r.id)}"><h2>#${e(r.id)} · <span class="status s-claimed">claimed</span></h2>
-<p>Customer is live; this request was trimmed to its number, cohort, plan and dates.</p>
+    // CR-ONBOARDEDTAB.1: "<First L> · <address>.bervo.ai · onboarded <date> · signed up <date>" (the name and address
+    // only when 0010 kept them; a request onboarded before it shows "(trimmed)").
+    return `<article class="req" id="r${e(r.id)}"><h2>#${e(r.id)} · ${r.kept_name ? e(r.kept_name) : "(trimmed)"} <span class="status s-onboarded">onboarded</span></h2>
+<p class="sum">${onboardedLine(r)}</p>
+<p>In use. The form details were erased on bervo.ai; ${r.kept_name || r.kept_host || r.kept_email ? "kept: first name, last initial, their Bervo address, their email address, the plan and the dates" : "kept: the plan and the dates"}.</p>
+${r.kept_email ? `<details class="answers"><summary>Email address</summary><p>${em(r.kept_email)}</p></details>` : ""}
 <dl><dt>Received</dt><dd>${fmt(r.created_at)}</dd><dt>Cohort</dt><dd>${e(r.cohort)}</dd><dt>Plan</dt><dd>${e(PLAN_NAMES[r.plan] || r.plan)}</dd>
 ${r.approved_at ? `<dt>Approved</dt><dd>${fmt(r.approved_at)}</dd>` : ""}${r.invited_at ? `<dt>Invited</dt><dd>${fmt(r.invited_at)}</dd>` : ""}
-${r.signed_up_at ? `<dt>Signed up</dt><dd>${fmt(r.signed_up_at)}</dd>` : ""}<dt>Claimed</dt><dd>${fmt(r.status_changed_at)}</dd></dl></article>`;
+${r.signed_up_at ? `<dt>Signed up</dt><dd>${fmt(r.signed_up_at)}</dd>` : ""}<dt>Onboarded</dt><dd>${fmt(r.status_changed_at)}</dd></dl></article>`;
   }
   // CR-AUTOSLUG.1: the box comes pre-filled (the request's own slug if it has one, else a fresh code made for this
   // page view); Allen may type over it.
@@ -373,11 +394,18 @@ ${mailOff ? `<p class="off">Sending is off (${e(mailOff)}). Copy the email below
 </article>`;
 }
 
-// Not now / Expired / Claimed / All: one line per request; click it to open the full card.
+// CR-ONBOARDEDTAB.1: an onboarded card's summary line.
+export function onboardedLine(r) {
+  const e = escapeHtml;
+  return [r.kept_name ? e(r.kept_name) : "", r.kept_host ? `${e(r.kept_host)}.bervo.ai` : "", `onboarded ${fmt(r.status_changed_at)}`,
+    r.signed_up_at ? `signed up ${fmt(r.signed_up_at)}` : ""].filter(Boolean).join(" · ");
+}
+
+// Not now / Expired / Onboarded / All: one line per request; click it to open the full card.
 function renderCompact(r, prov, card) {
   const e = escapeHtml;
   const stage = stageOf(r, prov);
-  const name = r.status === "claimed" ? "(trimmed)" : `${e(r.first_name)} ${e(r.last_name)}`;
+  const name = r.status === "claimed" ? (r.kept_name ? e(r.kept_name) : "(trimmed)") : `${e(r.first_name)} ${e(r.last_name)}`;
   return `<details class="row"><summary>#${e(r.id)} · ${name} · <span class="status s-${e(stage)}">${e(STAGE_WORDS[stage] || r.status)}</span> · ` +
     `${e(PLAN_NAMES[r.plan] || r.plan)} · ${fmt(r.status_changed_at || r.created_at)}</summary>${card}</details>`;
 }
@@ -462,7 +490,7 @@ textarea,input{width:100%;box-sizing:border-box;font:inherit}label{display:block
 .tabs{margin:.5rem 0 1rem;line-height:1.9}.sum{margin:.2rem 0;color:var(--muted)}.sum b{color:var(--fg)}.need{background:var(--yellow);border-radius:6px;padding:.3rem .6rem;margin:.4rem 0}
 details.answers{margin:.5rem 0}details.answers summary,details.row summary{cursor:pointer}details.answers summary{color:var(--muted)}
 details.row{border:1px solid var(--line);border-radius:8px;padding:.4rem .8rem;margin:.4rem 0}details.row[open] .req{border:0;padding:0}
-.timeline{margin:.4rem 0}.s-built{background:var(--green)}.s-signed_up{background:var(--green)}.s-new{background:var(--blue)}</style></head><body>
+.timeline{margin:.4rem 0}.s-built{background:var(--green)}.s-signed_up{background:var(--green)}.s-new{background:var(--blue)}.s-onboarded{background:var(--green)}</style></head><body>
 <h1>Invite requests</h1><p>Signed in as ${em(auth.email)}</p><nav class="tabs">${nav}</nav>
 ${listHtml}
 <script nonce="${nonce}">
@@ -610,7 +638,7 @@ export async function onRequestPost(context) {
   const id = Number(form.get("id"));
   const action = String(form.get("action") || "");
   if (!Number.isInteger(id) || id < 1) return refused(400);
-  const row = await env.DB.prepare("SELECT id, status, slug FROM invite_requests WHERE id = ?").bind(id).first();
+  const row = await env.DB.prepare("SELECT id, status, slug, first_name, last_name, email FROM invite_requests WHERE id = ?").bind(id).first();
   if (!row) return refused(404);
   const nowIso = new Date(context.nowMs ?? Date.now()).toISOString();
   if (action === "send_invite") return sendInvite(context, env, id, form, context.nowMs ?? Date.now());
@@ -677,8 +705,21 @@ export async function onRequestPost(context) {
   if (t === TRANSITIONS.approve && !keepSlug) { sets.push("slug = ?"); args.push(slug); }
   const guard = (slug ? " AND NOT EXISTS (SELECT 1 FROM invite_requests o WHERE o.slug = ? AND o.id <> ?)" : "") +
     (slug && lockedSlug ? " AND slug = ?" : "");
-  const res = await env.DB.prepare(`UPDATE invite_requests SET ${sets.join(", ")} WHERE id = ? AND status = ?${guard}`)
-    .bind(...args, id, row.status, ...(slug ? [slug, id] : []), ...(slug && lockedSlug ? [lockedSlug] : [])).run();
+  const tail = [id, row.status, ...(slug ? [slug, id] : []), ...(slug && lockedSlug ? [lockedSlug] : [])];
+  let res;
+  if (t.trim) {
+    // CR-ONBOARDEDTAB.1: keep First L, the address and the email in the same UPDATE (0010). Before 0010 the columns are missing
+    // and D1 refuses the statement (nothing changes); the trim then runs exactly as before.
+    const k = keptLabel(row);
+    try {
+      res = await env.DB.prepare(`UPDATE invite_requests SET ${sets.join(", ")}, kept_name = ?, kept_host = ?, kept_email = ? WHERE id = ? AND status = ?${guard}`)
+        .bind(...args, k.kept_name, k.kept_host, k.kept_email, ...tail).run();
+    } catch {
+      res = null;
+    }
+  }
+  if (!res) res = await env.DB.prepare(`UPDATE invite_requests SET ${sets.join(", ")} WHERE id = ? AND status = ?${guard}`)
+    .bind(...args, ...tail).run();
   if (slug && res?.meta && res.meta.changes === 0) {
     const now = await env.DB.prepare("SELECT status FROM invite_requests WHERE id = ?").bind(id).first();
     if (now && now.status === row.status) return redirect(`/admin/invites?sent=${lockedSlug ? "code_locked" : "code_taken"}&r=${id}#r${id}`);
