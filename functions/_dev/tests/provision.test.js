@@ -410,7 +410,12 @@ test("G2 migration: 0007 is the one and final shape (stopped + notes in the CREA
   assert.match(m7, /\bnotes\s+TEXT CHECK/);
   const others = execFileSync("git", ["ls-files", "functions/_dev/migrations"], { cwd: ROOT, encoding: "utf8" })
     .split("\n").filter((f) => f && !f.endsWith("0007_provisioning.sql"));
-  for (const f of others) assert.ok(!/invite_provision|invite_links|provision_nonces/.test(readFileSync(path.join(ROOT, f), "utf8")), f);
+  // CR-ONBOARDEDTAB.1 fix round 3: 0011 (a one-time data sweep) DELETEs rows from invite_provision / invite_links;
+  // what stays forbidden is any SCHEMA statement on these tables outside 0007.
+  for (const f of others) {
+    const sqlText = readFileSync(path.join(ROOT, f), "utf8").split("\n").filter((l) => !l.trim().startsWith("--")).join("\n");
+    assert.ok(!/\b(CREATE|ALTER|DROP)\b[^;]*\b(invite_provision|invite_links|provision_nonces)\b/i.test(sqlText), f);
+  }
 });
 
 // ---------- Allen 11-23: one Send once the Mini's link is ready ----------
