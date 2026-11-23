@@ -89,15 +89,23 @@ export async function applyOwnerChoice(db, { email, subscribed, at, nowMs }) {
 // read-only equality test: nothing from invite_requests is copied into the newsletter table (test N11).
 // Servers built before the invite form (tenant zero, t01, t02, the demos) have no such record: refused ("not_bound"),
 // and Allen's Add is the way onto the list for those owners (decision 3).
+export class Unavailable extends Error {}
+
+// -> true / false. A database error is NOT "not the owner" (fix round 2): it throws Unavailable, which the endpoint
+// answers with a retryable 503, so the customer server keeps the choice pending and retries hourly. Only a query that
+// ran and found no match is false (403 not_bound). Before migration 0010 (no kept_* columns) the slug-only form runs.
 export async function ownerMatches(db, tenant, email) {
+  const full = "SELECT 1 AS x FROM invite_requests WHERE (slug = ? AND lower(email) = ?) OR " +
+    "(status = 'claimed' AND kept_host = ? AND lower(kept_email) = ?) LIMIT 1";
   try {
-    const hit = await db.prepare("SELECT 1 AS x FROM invite_requests WHERE (slug = ? AND lower(email) = ?) OR " +
-      "(status = 'claimed' AND kept_host = ? AND lower(kept_email) = ?) LIMIT 1").bind(tenant, email, tenant, email).first();
-    return !!hit;
+    return !!(await db.prepare(full).bind(tenant, email, tenant, email).first());
+  } catch (e) {
+    if (!/no such column/i.test(String(e && e.message || e))) throw new Unavailable("owner check failed");
+  }
+  try {
+    return !!(await db.prepare("SELECT 1 AS x FROM invite_requests WHERE slug = ? AND lower(email) = ? LIMIT 1").bind(tenant, email).first());
   } catch {
-    try {   // before migration 0010 (no kept_* columns)
-      return !!(await db.prepare("SELECT 1 AS x FROM invite_requests WHERE slug = ? AND lower(email) = ? LIMIT 1").bind(tenant, email).first());
-    } catch { return false; }
+    throw new Unavailable("owner check failed");
   }
 }
 

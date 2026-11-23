@@ -41,7 +41,14 @@ export async function onRequestPost(context) {
   if (body.action === "set" && typeof body.subscribed !== "boolean") return reply(400, { ok: false, result: "bad_choice" });
   if (!env.DB) return reply(503, { ok: false, result: "not_configured" });
   // Fix round 1: only this server's own owner address; any other answers the same refusal (nothing revealed).
-  if (!(await ownerMatches(env.DB, tenant, email))) {
+  let owner;
+  try { owner = await ownerMatches(env.DB, tenant, email); }
+  catch (e) {
+    // fix round 2: a database error is retryable (the server keeps the choice pending), never "not the owner"
+    say(JSON.stringify({ event: "newsletter_relay", tenant, action: body.action, result: "unavailable" }));
+    return reply(503, { ok: false, result: "unavailable" });
+  }
+  if (!owner) {
     say(JSON.stringify({ event: "newsletter_relay", tenant, action: body.action, result: "not_bound" }));
     return reply(403, { ok: false, result: "not_bound" });
   }

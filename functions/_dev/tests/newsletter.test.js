@@ -370,3 +370,26 @@ test("N13 a 'no' always wins over Allen's Add, in both orders, including a 'no' 
   assert.equal((await relay(db, SET("c@x.co", true, "2026-11-23T10:00:00Z"))).body.result, "stale");
   assert.equal(rows(db)[0].source, "admin");
 });
+
+test("N14 fix round 2: a database error in the owner check is a retryable 503 'unavailable', never 403 not_bound; before 0010 the slug-only check still binds", async () => {
+  const db = makeD1();
+  bindOwner(db, "zmich", "brian@x.co");
+  const broken = { ...db, prepare(q) {
+    if (q.includes("invite_requests")) return { bind() { return this; }, async first() { throw new Error("D1_ERROR: network connection lost"); } };
+    return db.prepare(q);
+  } };
+  let r = await relay(broken, { tenant: "zmich", action: "set", email: "brian@x.co", subscribed: true, at: "2026-11-23T14:00:00Z" }, { bind: false });
+  assert.deepEqual([r.status, r.body.result], [503, "unavailable"]);
+  r = await relay(broken, { tenant: "zmich", action: "status", email: "brian@x.co" }, { bind: false });
+  assert.deepEqual([r.status, r.body.result], [503, "unavailable"]);
+  assert.equal(rows(db).length, 0, "nothing written");
+  // the slug-only form when the kept_* columns are missing (a database before 0010)
+  const old = { ...db, prepare(q) {
+    if (q.includes("kept_host")) return { bind() { return this; }, async first() { throw new Error("D1_ERROR: no such column: kept_host"); } };
+    return db.prepare(q);
+  } };
+  r = await relay(old, { tenant: "zmich", action: "set", email: "brian@x.co", subscribed: true, at: "2026-11-23T14:00:00Z" }, { bind: false });
+  assert.equal(r.body.result, "subscribed");
+  r = await relay(old, { tenant: "zmich", action: "status", email: "other@x.co" }, { bind: false });
+  assert.deepEqual([r.status, r.body.result], [403, "not_bound"], "a real non-match is still 403");
+});
