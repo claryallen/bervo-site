@@ -208,8 +208,14 @@ function renderRow(r, mails = [], mailOff = null, flash = "", nowMs = Date.now()
       r.slug && prov ? `Approve this request and continue its server build at ${r.slug}.bervo.ai. The Mini picks it up within 5 minutes.`
         : "Approve this request and build its server at the address code in the box. The Mini starts within 5 minutes."));
   }
-  if (TRANSITIONS.not_now.from.includes(r.status)) actions.push(btn("not_now", "Not now"));
-  if (TRANSITIONS.invited.from.includes(r.status)) actions.push(btn("invited", "Mark invited"));
+  // Allen 11-23: every row button says what it does; Mark invited only where you would send by hand.
+  const autoSend = !!(links && links.invite) && !mailOff;
+  if (TRANSITIONS.not_now.from.includes(r.status)) actions.push(btnT("not_now", "Not now",
+    building ? "Withdraw this request. The server build stops at its next step; the server is kept (tear it down by hand if needed)."
+      : prov ? "Decline or withdraw this request. Its server is kept (tear it down by hand if needed)."
+        : "Decline this request for now. You can approve it later."));
+  if (TRANSITIONS.invited.from.includes(r.status) && !autoSend) actions.push(btnT("invited", "Mark invited",
+    "Use this only if you sent the invite yourself (by copying the email below). Send invite email marks it invited for you."));
   if (TRANSITIONS.claimed.from.includes(r.status)) actions.push(btn("claimed", "Mark claimed (trims this request)"));
   if (TRANSITIONS.expired.from.includes(r.status)) actions.push(btn("expired", "Mark expired"));
   if (r.status === "claimed") {
@@ -256,13 +262,13 @@ ${r.invited_at ? `<dt>Invited</dt><dd>${fmt(r.invited_at)}</dd>` : ""}
 <input type="hidden" name="id" value="${e(r.id)}">
 <label>Note <textarea name="note" maxlength="2000" rows="2">${e(r.note || "")}</textarea></label>
 ${slugField}
-<div class="buttons">${actions.join(" ")} ${btn("note", "Save note")}</div>
+<div class="buttons">${actions.join(" ")} ${btnT("note", "Save note", "Save the note only; nothing else changes.")}</div>
 </form>
 ${renderMail(mails)}
 ${flash ? `<p class="flash">${e(flash)}</p>` : ""}
 ${r.status === "approved" || r.status === "invited" || prov ? renderBuild(r, prov, links, mailOff) : ""}
 ${r.status === "invited" ? renderReminder(r, mails, mailOff, nowMs, links) : ""}
-${r.status === "approved" || r.status === "invited" ? `<div class="copy" data-first="${e(r.first_name)}" data-variant="${needsIphoneNoMacNote(r.phone, r.computers) ? "note" : "plain"}">
+${r.status === "approved" || r.status === "invited" ? `${autoSend ? `<details class="other"><summary>Use a different link instead, or copy the email to send yourself</summary>` : ""}<div class="copy" data-first="${e(r.first_name)}" data-variant="${needsIphoneNoMacNote(r.phone, r.computers) ? "note" : "plain"}">
 <form method="post" action="/admin/invites" class="send">
 <input type="hidden" name="id" value="${e(r.id)}">
 <label>Owner link (paste it here) <input class="link" name="link" type="url" autocomplete="off" required></label>
@@ -272,7 +278,7 @@ ${mailOff ? `<p class="off">Sending is off (${e(mailOff)}). Copy the email below
 <p>Subject: <b>${e(INVITE_EMAIL_SUBJECT)}</b></p>
 <textarea class="mail" readonly rows="12"></textarea>
 <button type="button" class="copybtn">Copy invite email</button> <span class="copied"></span>
-</div>` : ""}
+</div>${autoSend ? "</details>" : ""}` : ""}
 </article>`;
 }
 
@@ -340,7 +346,7 @@ dl{display:grid;grid-template-columns:10rem 1fr;gap:.1rem .75rem;margin:.5rem 0}
 textarea,input{width:100%;box-sizing:border-box;font:inherit}label{display:block;margin:.4rem 0}.buttons{margin-top:.4rem}
 .copy{margin-top:.6rem;border-top:1px dashed var(--dash);padding-top:.5rem}
 .mail-log{margin:.4rem 0;padding-left:1.2rem}.ms{border-radius:4px;padding:0 .4em;background:var(--gray)}.ms-delivered{background:var(--green)}
-.ms-bounced,.ms-complained,.ms-failed{background:var(--red)}.build{margin:.5rem 0}.bs{border-radius:4px;padding:0 .4em;background:var(--gray)}.bs-ready{background:var(--green)}.bs-failed{background:var(--red)}.bs-waiting_cap{background:var(--yellow)}.bs-stopped{background:var(--red)}.ready{margin:.3rem 0}.remind{background:var(--remind);border-radius:6px;padding:.3rem .7rem;margin:.5rem 0}.flash{background:var(--yellow);border-radius:6px;padding:.3rem .6rem}.off{color:var(--off)}button:disabled{opacity:.45;cursor:not-allowed}</style></head><body>
+.ms-bounced,.ms-complained,.ms-failed{background:var(--red)}.build{margin:.5rem 0}.bs{border-radius:4px;padding:0 .4em;background:var(--gray)}.bs-ready{background:var(--green)}.bs-failed{background:var(--red)}.bs-waiting_cap{background:var(--yellow)}.bs-stopped{background:var(--red)}.ready{margin:.3rem 0}.remind{background:var(--remind);border-radius:6px;padding:.3rem .7rem;margin:.5rem 0}.flash{background:var(--yellow);border-radius:6px;padding:.3rem .6rem}.off{color:var(--off)}button:disabled{opacity:.45;cursor:not-allowed}details.other{margin-top:.6rem}details.other summary{cursor:pointer;color:var(--muted)}</style></head><body>
 <h1>Invite requests</h1><p>Signed in as ${em(auth.email)} · Show: ${nav}</p>
 ${results.length ? results.map((r) => renderRow(r, mails.get(r.id), mailOff, r.id === flashId ? flash : "", nowMs, provs.get(r.id) || null, links.get(r.id) || {}, codes.get(r.id) || "")).join("\n") : "<p>None.</p>"}
 ${renderServerMail(await serverMails(env.DB))}
