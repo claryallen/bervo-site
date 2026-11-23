@@ -201,9 +201,9 @@ function renderBuild(r, prov, links = {}, mailOff = null) {
 // why (if at all) it is also under Needs you, the default tab. Both read only what the page already loads.
 // CR-ADMINTABS.2 (Allen 11-23): no "Needs you" tab. One tab per stage, in this order; the query keys are unchanged so old
 // links work. A request's needsYou() reason stays on its card; tabLabel() puts a marker on the tab that holds it.
-export const TABS = [["new", "New"], ["not_now", "Deferred"], ["approved", "Build waiting"], ["built", "Ready to send"],
-  ["invited", "Invite sent"], ["signed_up", "Signed up"], ["onboarded", "Onboarded"], ["expired", "Expired"], ["all", "All"],
-  ["server_emails", "Emails sent"]];
+export const TABS = [["new", "New"], ["not_now", "Deferred"], ["approved", "Build waiting"], ["built", "Ready"],
+  ["invited", "Invited"], ["signed_up", "Signed up"], ["onboarded", "Onboarded"], ["expired", "Expired"], ["all", "All"],
+  ["server_emails", "Emails"]];
 const TAB_KEYS = TABS.map(([k]) => k);
 const TAB_ALIASES = { open: "new", needs: "new", claimed: "onboarded" };   // old links: ?show=open / needs (now New), ?show=claimed
 const COMPACT_TABS = new Set(["not_now", "expired", "onboarded", "all"]);
@@ -247,8 +247,8 @@ export function inTab(tab, r, prov, mails) {
   return stageOf(r, prov) === tab;
 }
 
-// CR-ADMINTABS.2: the marker on a tab label. New and Ready to send always need Allen, so their count is enough; Build
-// waiting and Invite sent add what is wrong ("Build waiting (2, 1 failed)"). Returns the text inside the brackets.
+// CR-ADMINTABS.2: the marker on a tab label. New and Ready always need Allen, so their count is enough; Build
+// waiting and Invited add what is wrong ("Build waiting (2, 1 failed)"). Returns the text inside the brackets.
 export function tabMarker(key, rows) {
   const n = rows.length;
   if (key === "all" || key === "server_emails") return "";

@@ -151,11 +151,11 @@ test("T1 every status x build state (and signed up) lives in exactly one stage t
   // every request needing Allen is counted in its tab's label marker
   for (const [t, want] of [["new", 1], ["built", 1]]) {
     const n = cases.filter((c) => expectedTabs(c.status, c.build, c.signedUp).stage === t).length;
-    assert.ok((await adminGet(db)).body.includes(`${t === "new" ? "New" : "Ready to send"} (${n})`), `${t} label count`);
+    assert.ok((await adminGet(db)).body.includes(`${t === "new" ? "New" : "Ready"} (${n})`), `${t} label count`);
   }
 });
 
-test("T2 New is the default; ?show=open and ?show=needs (old links) open it; a bounced or failed email shows on the invited card and in the Invite sent label", async () => {
+test("T2 New is the default; ?show=open and ?show=needs (old links) open it; a bounced or failed email shows on the invited card and in the Invited label", async () => {
   const db = makeD1();
   const a = seed(db, { status: "invited", slug: "zz-a", invitedAt: "2026-11-21T10:00:00Z" });
   const b = seed(db, { status: "invited", slug: "zz-b", invitedAt: "2026-11-21T10:00:00Z" });
@@ -165,7 +165,7 @@ test("T2 New is the default; ?show=open and ?show=needs (old links) open it; a b
   db.raw.prepare("INSERT INTO invite_mail (request_id, template, status, created_at) VALUES (?, 'invite', 'delivered', '2026-11-21T10:00:00Z')").run(c);
   const def = (await adminGet(db)).body;
   assert.ok(def.includes("<b>New (0)</b>") && ids(def).length === 0, "default tab is New");
-  assert.ok(def.includes('<a href="/admin/invites?show=invited">Invite sent (3, 1 bounced, 1 not sent)</a>'), "label markers");
+  assert.ok(def.includes('<a href="/admin/invites?show=invited">Invited (3, 1 bounced, 1 not sent)</a>'), "label markers");
   const inv = (await adminGet(db, "?show=invited")).body;
   assert.deepEqual(ids(inv).sort(), [a, b, c].sort());
   assert.ok(art(inv, a).includes("An email to them bounced") && art(inv, b).includes("The last email was not sent"));
@@ -302,14 +302,14 @@ test("S5 0009 adds one nullable date column and nothing else", () => {
   assert.equal(sqlText.trim(), "ALTER TABLE invite_requests ADD COLUMN signed_up_at TEXT;");
 });
 
-test("T8 a signed-up request with an old bounce: no warning, no marker on Invite sent (CR-ONBOARDEDTAB.1; it waits in Signed up)", async () => {
+test("T8 a signed-up request with an old bounce: no warning, no marker on Invited (CR-ONBOARDEDTAB.1; it waits in Signed up)", async () => {
   const db = makeD1();
   const id = seed(db, { status: "invited", slug: "zz-s", invitedAt: "2026-11-19T10:00:00Z" });
   db.raw.prepare("INSERT INTO invite_mail (request_id, template, status, created_at) VALUES (?, 'reminder_day3', 'bounced', '2026-11-22T10:00:00Z')").run(id);
   assert.ok(art((await adminGet(db, "?show=invited")).body, id).includes("An email to them bounced"), "before: the bounce");
-  assert.ok((await adminGet(db)).body.includes("Invite sent (1, 1 bounced)"), "before: the label marker");
+  assert.ok((await adminGet(db)).body.includes("Invited (1, 1 bounced)"), "before: the label marker");
   db.raw.prepare("UPDATE invite_requests SET signed_up_at = ? WHERE id = ?").run("2026-11-23T10:00:00Z", id);
-  assert.ok((await adminGet(db)).body.includes("Invite sent (0)"), "no marker once signed up");
+  assert.ok((await adminGet(db)).body.includes("Invited (0)"), "no marker once signed up");
   const a = art((await adminGet(db, "?show=signed_up")).body, id);
   assert.ok(!a.includes("Needs you:</b>") && !a.includes("An email to them bounced"));
 });
@@ -565,15 +565,15 @@ test("O10 0011 (the one-time sweep of requests onboarded under the old trim): da
 });
 
 test("A1 tab order and names (CR-ADMINTABS.2); no Needs you tab; query keys unchanged", async () => {
-  assert.deepEqual(admin.TABS.map(([, l]) => l), ["New", "Deferred", "Build waiting", "Ready to send", "Invite sent", "Signed up", "Onboarded", "Expired", "All", "Emails sent"]);
+  assert.deepEqual(admin.TABS.map(([, l]) => l), ["New", "Deferred", "Build waiting", "Ready", "Invited", "Signed up", "Onboarded", "Expired", "All", "Emails"]);
   assert.deepEqual(admin.TABS.map(([k]) => k), ["new", "not_now", "approved", "built", "invited", "signed_up", "onboarded", "expired", "all", "server_emails"]);
   const db = makeD1();
   const body = (await adminGet(db)).body;
   const nav = body.split('<nav class="tabs">')[1].split("</nav>")[0];
-  assert.ok(!/Needs you/.test(nav) && !/Not now|Server emails|Approved|Built\b|Invited/.test(nav), "no old tab names");
+  assert.ok(!/Needs you/.test(nav) && !/Not now|Server emails|Approved|Built\b|Ready to send|Invite sent|Emails sent/.test(nav), "no old tab names");
 });
 
-test("A2 tab label markers: Build waiting (2, 1 failed), Ready to send (1), New count; all tabs lose none", async () => {
+test("A2 tab label markers: Build waiting (2, 1 failed), Ready (1), New count; all tabs lose none", async () => {
   const db = makeD1();
   const f = seed(db, { status: "approved", slug: "zz-f" }); setProv(db, f, "failed");
   const w = seed(db, { status: "approved", slug: "zz-w" }); setProv(db, w, "building");
@@ -582,7 +582,7 @@ test("A2 tab label markers: Build waiting (2, 1 failed), Ready to send (1), New 
   seed(db, { status: "new" });
   const body = (await adminGet(db)).body;
   assert.ok(body.includes("Build waiting (3, 1 failed, 1 stopped)"), "build waiting marker");
-  assert.ok(body.includes("Ready to send (1)") && body.includes("<b>New (1)</b>"));
+  assert.ok(body.includes("Ready (1)") && body.includes("<b>New (1)</b>"));
   assert.ok(body.includes("Deferred (0)") && body.includes("Signed up (0)"));
 });
 
