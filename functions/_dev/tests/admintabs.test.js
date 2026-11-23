@@ -597,3 +597,15 @@ test("A3 the pointer line appears only when New is empty and another tab needs A
   assert.ok(!(await adminGet(db)).body.includes("Nothing new to approve"), "New not empty: no pointer");
   assert.ok(!/\[GTM/.test(readFileSync(path.join(ROOT, "functions/admin/invites.js"), "utf8")));
 });
+
+test("A4 Build waiting also counts a bounced / not-sent email (Allen 11-23), in needsYou()'s order", async () => {
+  const { tabMarker } = await import("../../admin/invites.js");
+  const rows = [
+    { r: { status: "approved" }, prov: { state: "failed" }, mails: [{ status: "bounced" }] },   // build failure wins
+    { r: { status: "approved" }, prov: { state: "queued" }, mails: [{ status: "bounced" }] },
+    { r: { status: "approved" }, prov: null, mails: [{ status: "failed" }] },
+    { r: { status: "approved" }, prov: { state: "building" }, mails: [] },
+  ];
+  assert.equal(tabMarker("approved", rows), "4, 1 failed, 1 bounced, 1 not sent");
+  assert.equal(tabMarker("built", rows.slice(0, 1)), "1");
+});

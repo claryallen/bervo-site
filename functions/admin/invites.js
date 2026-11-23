@@ -256,14 +256,12 @@ export function tabMarker(key, rows) {
   if (key === "approved" || key === "invited") {
     const c = { failed: 0, stopped: 0, bounced: 0, "not sent": 0 };
     for (const { r, prov, mails } of rows) {
-      if (key === "approved") {
-        if (prov && prov.state === "failed") c.failed++;
-        else if (prov && prov.state === "stopped") c.stopped++;
-      } else {
-        const list = mails || [];
-        if (list.some((m) => m.status === "bounced" || m.status === "complained")) c.bounced++;
-        else if (list.length && list[0].status === "failed") c["not sent"]++;
-      }
+      // Allen 11-23 ("Yes, publish"): Build waiting also counts a bounced / not-sent email, in needsYou()'s order.
+      const list = mails || [];
+      if (key === "approved" && prov && prov.state === "failed") c.failed++;
+      else if (key === "approved" && prov && prov.state === "stopped") c.stopped++;
+      else if (list.some((m) => m.status === "bounced" || m.status === "complained")) c.bounced++;
+      else if (list.length && list[0].status === "failed") c["not sent"]++;
     }
     for (const [w, k] of Object.entries(c)) if (k) parts.push(`${k} ${w}`);
   }
