@@ -323,20 +323,27 @@ export async function onRequestGet(context) {
   const body = `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">
 <title>Invite requests · Bervo admin</title>
-<style>body{max-width:900px;margin:1.5rem auto;padding:0 1rem;font:15px/1.5 -apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#1b1b1b;background:#fff}
-.req{border:1px solid #ddd;border-radius:8px;padding:.75rem 1rem;margin:1rem 0}h2{font-size:1.1rem;margin:.2rem 0}
-dl{display:grid;grid-template-columns:10rem 1fr;gap:.1rem .75rem;margin:.5rem 0}dt{color:#666}dd{margin:0;overflow-wrap:anywhere}
-.about{white-space:pre-wrap;overflow-wrap:anywhere;background:#f6f7f9;border-radius:6px;padding:.5rem .75rem}
-.badge{background:#fde68a;color:#5a3d00;border-radius:4px;padding:0 .4em;font-size:.8rem}
-.status{font-size:.8rem;border-radius:4px;padding:0 .4em;background:#eee}.s-approved{background:#d1fae5}.s-not_now{background:#fee2e2}.s-invited{background:#dbeafe}
+<style>/* CR-ADMINDARK.1 (Allen 11-23): light/dark tokens, the home page's dark palette; follows the device and the saved home-page choice (bervo-theme). */
+:root{--bg:#fff;--fg:#1b1b1b;--muted:#666;--line:#ddd;--dash:#ccc;--soft:#f6f7f9;--gray:#eee;--green:#d1fae5;--red:#fee2e2;--blue:#dbeafe;--yellow:#fef3c7;--remind:#eff6ff;--amber:#fde68a;--amber-ink:#5a3d00;--off:#7a4b00;--link:#0645ad}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0d0d0d;--fg:#e8e8e8;--muted:#9a9a9a;--line:#2a2a2a;--dash:#3a3a3a;--soft:#161616;--gray:#262626;--green:#12301f;--red:#3a1717;--blue:#14222f;--yellow:#33290f;--remind:#14222f;--amber:#3d3212;--amber-ink:#fde68a;--off:#e0b060;--link:#6aa9dc;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#0d0d0d;--fg:#e8e8e8;--muted:#9a9a9a;--line:#2a2a2a;--dash:#3a3a3a;--soft:#161616;--gray:#262626;--green:#12301f;--red:#3a1717;--blue:#14222f;--yellow:#33290f;--remind:#14222f;--amber:#3d3212;--amber-ink:#fde68a;--off:#e0b060;--link:#6aa9dc;color-scheme:dark}
+a{color:var(--link)}
+body{max-width:900px;margin:1.5rem auto;padding:0 1rem;font:15px/1.5 -apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:var(--fg);background:var(--bg)}
+.req{border:1px solid var(--line);border-radius:8px;padding:.75rem 1rem;margin:1rem 0}h2{font-size:1.1rem;margin:.2rem 0}
+dl{display:grid;grid-template-columns:10rem 1fr;gap:.1rem .75rem;margin:.5rem 0}dt{color:var(--muted)}dd{margin:0;overflow-wrap:anywhere}
+.about{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--soft);border-radius:6px;padding:.5rem .75rem}
+.badge{background:var(--amber);color:var(--amber-ink);border-radius:4px;padding:0 .4em;font-size:.8rem}
+.status{font-size:.8rem;border-radius:4px;padding:0 .4em;background:var(--gray)}.s-approved{background:var(--green)}.s-not_now{background:var(--red)}.s-invited{background:var(--blue)}
 textarea,input{width:100%;box-sizing:border-box;font:inherit}label{display:block;margin:.4rem 0}.buttons{margin-top:.4rem}
-.copy{margin-top:.6rem;border-top:1px dashed #ccc;padding-top:.5rem}
-.mail-log{margin:.4rem 0;padding-left:1.2rem}.ms{border-radius:4px;padding:0 .4em;background:#eee}.ms-delivered{background:#d1fae5}
-.ms-bounced,.ms-complained,.ms-failed{background:#fee2e2}.build{margin:.5rem 0}.bs{border-radius:4px;padding:0 .4em;background:#eee}.bs-ready{background:#d1fae5}.bs-failed{background:#fee2e2}.bs-waiting_cap{background:#fef3c7}.bs-stopped{background:#fee2e2}.ready{margin:.3rem 0}.remind{background:#eff6ff;border-radius:6px;padding:.3rem .7rem;margin:.5rem 0}.flash{background:#fef3c7;border-radius:6px;padding:.3rem .6rem}.off{color:#7a4b00}</style></head><body>
+.copy{margin-top:.6rem;border-top:1px dashed var(--dash);padding-top:.5rem}
+.mail-log{margin:.4rem 0;padding-left:1.2rem}.ms{border-radius:4px;padding:0 .4em;background:var(--gray)}.ms-delivered{background:var(--green)}
+.ms-bounced,.ms-complained,.ms-failed{background:var(--red)}.build{margin:.5rem 0}.bs{border-radius:4px;padding:0 .4em;background:var(--gray)}.bs-ready{background:var(--green)}.bs-failed{background:var(--red)}.bs-waiting_cap{background:var(--yellow)}.bs-stopped{background:var(--red)}.ready{margin:.3rem 0}.remind{background:var(--remind);border-radius:6px;padding:.3rem .7rem;margin:.5rem 0}.flash{background:var(--yellow);border-radius:6px;padding:.3rem .6rem}.off{color:var(--off)}</style></head><body>
 <h1>Invite requests</h1><p>Signed in as ${em(auth.email)} · Show: ${nav}</p>
 ${results.length ? results.map((r) => renderRow(r, mails.get(r.id), mailOff, r.id === flashId ? flash : "", nowMs, provs.get(r.id) || null, links.get(r.id) || {}, codes.get(r.id) || "")).join("\n") : "<p>None.</p>"}
 ${renderServerMail(await serverMails(env.DB))}
 <script nonce="${nonce}">
+// CR-ADMINDARK.1: the saved home-page light/dark choice (bervo-theme), if any; else the device setting.
+try { const t = window[["local", "Storage"].join("")].getItem("bervo-theme"); if (t === "dark" || t === "light") document.documentElement.setAttribute("data-theme", t); } catch (e) {}
 const TEMPLATES = { plain: ${JSON.stringify(INVITE_EMAIL_TEMPLATE).replace(/</g, "\\u003c")}, note: ${JSON.stringify(inviteBody("iphone", '["none"]')).replace(/</g, "\\u003c")} };
 ${COPY_LINK_SCRIPT}
 // CR-AUTOSLUG.1: Enter in the Address code box never submits (a second guard: the form's first submit button is a
