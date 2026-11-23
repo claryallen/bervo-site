@@ -10,9 +10,11 @@
 //       { tenant, action: "status", email }                              -> { ok, status, changed_at }
 // "status" is how a server learns of an unsubscribe made from an email (one-click page or Postmark) and turns its
 // switch off. The tenant is checked and logged, never stored. The address is never logged.
+// Fix round 1: the email must be the tenant's owner on record (ownerMatches); otherwise 403 "not_bound" for set and
+// status alike, whether or not the address is on the list.
 import { verifyRelay } from "./account-mail.js";
 import { TENANT_RE } from "../_lib/mail.js";
-import { applyOwnerChoice, normEmail, NotSetUp, statusOf } from "../_lib/newsletter.js";
+import { applyOwnerChoice, normEmail, NotSetUp, ownerMatches, statusOf } from "../_lib/newsletter.js";
 
 const MAX_BYTES = 4096;
 
@@ -38,6 +40,11 @@ export async function onRequestPost(context) {
   if (body.action !== "set" && body.action !== "status") return reply(400, { ok: false, result: "bad_action" });
   if (body.action === "set" && typeof body.subscribed !== "boolean") return reply(400, { ok: false, result: "bad_choice" });
   if (!env.DB) return reply(503, { ok: false, result: "not_configured" });
+  // Fix round 1: only this server's own owner address; any other answers the same refusal (nothing revealed).
+  if (!(await ownerMatches(env.DB, tenant, email))) {
+    say(JSON.stringify({ event: "newsletter_relay", tenant, action: body.action, result: "not_bound" }));
+    return reply(403, { ok: false, result: "not_bound" });
+  }
   try {
     if (body.action === "status") {
       const s = await statusOf(env.DB, email);

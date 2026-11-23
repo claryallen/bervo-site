@@ -29,7 +29,7 @@ export async function onRequestGet(context) {
   const t = new URL(context.request.url).searchParams.get("t") || "";
   if (!TOKEN_RE.test(t)) return page(BROKEN, 400);
   return page(`<p>Stop getting Bervo news and announcements at this address?</p>
-<form method="post" action="/newsletter/unsubscribe?t=${t}"><button type="submit" name="confirm" value="1">Unsubscribe</button></form>`);
+<form method="post" action="/newsletter/unsubscribe?t=${t}"><button type="submit" name="confirm" value="1" title="Stop Bervo news and announcements at this address. Notices about your Bervo service still come.">Unsubscribe</button></form>`);
 }
 
 export async function onRequestPost(context) {

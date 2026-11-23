@@ -57,14 +57,27 @@ async function hmac(secret, msg) {
   const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
   return Buffer.from(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(msg))).toString("hex");
 }
-async function relay(db, body, { secret = RELAY, ts = Math.floor(NOW / 1000), env = {}, logs = [] } = {}) {
+// Fix round 1: bervo.ai answers only for the tenant's owner address on record. bindOwner() adds an open invite request
+// with that slug + email (as Approve and build leaves it); relay() binds the body's (tenant, email) unless bind: false.
+function bindOwner(db, tenant, email) {
+  db.raw.prepare("INSERT INTO invite_requests (created_at, first_name, last_name, email, has_assistant, email_providers, phone, plan, " +
+    "timezone, about, cohort, privacy_agreed_at, status, status_changed_at, approved_at, slug) " +
+    "VALUES ('2026-11-20T10:00:00Z', 'Pat', 'Sample', ?, 'yes', '[\"google\"]', 'android', 'private', 'America/Chicago', 'x', 'public', " +
+    "'2026-11-20T10:00:00Z', 'approved', '2026-11-20T11:00:00Z', '2026-11-20T11:00:00Z', ?)").run(email, tenant);
+}
+async function relay(db, body, { secret = RELAY, ts = Math.floor(NOW / 1000), env = {}, logs = [], bind = true } = {}) {
+  const em = String(body.email || "").trim().toLowerCase();
+  if (bind && /^[a-z0-9-]{1,31}$/.test(body.tenant || "") && em.includes("@")
+      && !db.raw.prepare("SELECT 1 FROM invite_requests WHERE slug = ? AND lower(email) = ?").get(body.tenant, em)) bindOwner(db, body.tenant, em);
   const raw = JSON.stringify(body);
   const res = await api.onRequestPost({ request: new Request(`${ORIGIN}/api/newsletter`, { method: "POST",
     headers: { "Content-Type": "application/json", "x-bervo-relay-ts": String(ts), "x-bervo-relay-sig": await hmac(secret, `${ts}.${raw}`) }, body: raw }),
     env: ENV(db, env), nowMs: NOW, say: (l) => logs.push(l) });
   return { status: res.status, body: JSON.parse(await res.text()) };
 }
-const SET = (email, subscribed, at = "2026-11-23T14:00:00Z") => ({ tenant: "zmich", action: "set", email, subscribed, at });
+const tenantOf = (email) => "t-" + String(email).toLowerCase().split("@")[0].replace(/[^a-z0-9]/g, "").slice(0, 20);
+const SET = (email, subscribed, at = "2026-11-23T14:00:00Z") => ({ tenant: tenantOf(email), action: "set", email, subscribed, at });
+const STATUS = (email) => ({ tenant: tenantOf(email), action: "status", email });
 
 // ---------- migration ----------
 test("N1 migration 0012: only email/status/source/opted_in_at/opted_out_at; a suppression row can hold nothing but email + opted_out_at; safe twice", () => {
@@ -93,8 +106,8 @@ test("N2 relay: a signed opt-in stores email + source setup + opted_in_at; nothi
   assert.equal(r.status, 200); assert.equal(r.body.result, "subscribed");
   assert.deepEqual(rows(db), [{ email: "pat@example.com", status: "subscribed", source: "setup", opted_in_at: "2026-11-23T14:00:00.000Z", opted_out_at: null }]);
   assert.ok(logs.length && logs.every((l) => !/pat@|example\.com/i.test(l)), logs.join("\n"));
-  assert.ok(logs.some((l) => l.includes("zmich")));
-  const s = await relay(db, { tenant: "zmich", action: "status", email: "pat@example.com" });
+  assert.ok(logs.some((l) => l.includes("t-pat")));
+  const s = await relay(db, STATUS("pat@example.com"));
   assert.deepEqual([s.body.status, s.body.changed_at], ["subscribed", "2026-11-23T14:00:00.000Z"]);
 });
 
@@ -103,8 +116,8 @@ test("N3 relay refuses: wrong secret, old timestamp, no secret (503), bad tenant
   assert.equal((await relay(db, SET("p@x.co", true), { secret: RELAY + "x" })).status, 401);
   assert.equal((await relay(db, SET("p@x.co", true), { ts: Math.floor(NOW / 1000) - 600 })).status, 401);
   assert.equal((await relay(db, SET("p@x.co", true), { env: { BERVO_MAIL_RELAY_SECRET: "" } })).status, 503);
-  assert.equal((await relay(db, { ...SET("p@x.co", true), tenant: "Bad Tenant" })).body.result, "bad_tenant");
-  assert.equal((await relay(db, SET("not-an-address", true))).body.result, "bad_email");
+  assert.equal((await relay(db, { ...SET("p@x.co", true), tenant: "Bad Tenant" }, { bind: false })).body.result, "bad_tenant");
+  assert.equal((await relay(db, SET("not-an-address", true), { bind: false })).body.result, "bad_email");
   assert.equal((await relay(db, { ...SET("p@x.co", true), action: "delete" })).body.result, "bad_action");
   assert.equal((await relay(db, { ...SET("p@x.co", true), subscribed: "yes" })).body.result, "bad_choice");
   assert.equal(rows(db).length, 0);
@@ -169,7 +182,7 @@ test("N6 webhook: SubscriptionChange (SuppressSending true) and SpamComplaint un
   assert.ok(!rows(db).some((x) => x.email === "nobody@x.co"), "an unknown address stores nothing");
   assert.ok(logs.every((l) => !/@x\.co/.test(l)), logs.join("\n"));
   // the server learns it on its next status ask
-  const s = await relay(db, { tenant: "zmich", action: "status", email: "a@x.co" });
+  const s = await relay(db, STATUS("a@x.co"));
   assert.equal(s.body.status, "unsubscribed");
 });
 
@@ -192,6 +205,7 @@ test("N7 unsubscribe link: GET changes nothing; POST (button or RFC 8058 one-cli
   assert.ok(!nl.unsubLink(ORIGIN, t).includes("p@x.co"));
   const g = await unsubGet(db, t);
   assert.equal(g.status, 200); assert.match(g.body, /<form method="post"/); assert.match(g.csp, /form-action 'self'/);
+  assert.match(g.body, /<button[^>]* title="Stop Bervo news and announcements at this address\./, "fix round 1: the button has a tooltip");
   assert.equal(rows(db).find((r) => r.email === "p@x.co").status, "subscribed");
   const p = await unsubPost(db, t, "List-Unsubscribe=One-Click");
   assert.equal(p.status, 200); assert.match(p.body, /You're unsubscribed/);
@@ -292,10 +306,67 @@ test("N10 admin page before migration 0012 says so (no crash); the invites page 
   assert.match(await res.text(), /<a href="\/admin\/newsletter">Newsletter<\/a>/);
 });
 
-test("N11 invite-request data never feeds the list: no newsletter file reads invite_requests, and the invite handlers never touch newsletter", () => {
+test("N11 invite-request data never feeds the list: no newsletter write takes a value from invite_requests (the binding is a read-only equality test), and the invite handlers never touch newsletter", () => {
   const files = ["functions/_lib/newsletter.js", "functions/api/newsletter.js", "functions/api/newsletter-events.js",
     "functions/newsletter/unsubscribe.js", "functions/admin/newsletter.js"];
-  for (const f of files) assert.doesNotMatch(readFileSync(path.join(ROOT, f), "utf8"), /invite_requests|kept_email/, f);
+  for (const f of files) {
+    const src = readFileSync(path.join(ROOT, f), "utf8");
+    const sqls = [...src.matchAll(/"((?:INSERT|UPDATE|DELETE|SELECT)[^"]*)"/g)].map((m) => m[1]);
+    for (const q of sqls.filter((q) => /newsletter/.test(q) && /^(INSERT|UPDATE|DELETE)/.test(q))) assert.doesNotMatch(q, /invite_requests|kept_/, `${f}: ${q}`);
+    const reads = src.match(/invite_requests/g) || [];
+    if (f === "functions/_lib/newsletter.js") {
+      // only ownerMatches' two SELECT 1 statements read it
+      assert.ok(sqls.filter((q) => q.includes("invite_requests")).every((q) => q.startsWith("SELECT 1 AS x FROM invite_requests")), f);
+    } else if (f !== "functions/api/newsletter.js") assert.equal(reads.length, 0, f);
+  }
   for (const f of ["functions/api/invite.js", "functions/admin/invites.js", "functions/_lib/invites.js", "functions/_lib/provision.js"])
     assert.doesNotMatch(readFileSync(path.join(ROOT, f), "utf8"), /FROM newsletter|INTO newsletter|UPDATE newsletter/, f);
+});
+
+// ---------- fix round 1 ----------
+test("N12 binding: set and status answer only for the tenant's own owner address (open request by slug, or onboarded kept_host/kept_email); anything else is the same 403 not_bound, nothing written", async () => {
+  const db = makeD1();
+  bindOwner(db, "zmich", "brian@x.co");
+  // an onboarded request keeps kept_host + kept_email (0010)
+  db.raw.prepare("INSERT INTO invite_requests (created_at, plan, cohort, privacy_agreed_at, status, status_changed_at, kept_name, kept_host, kept_email) " +
+    "VALUES ('2026-11-01T10:00:00Z', 'private', 'public', '2026-11-01T10:00:00Z', 'claimed', NULL, 'Matt C', 'mattc1', 'matt@x.co')").run();
+  let r = await relay(db, { tenant: "zmich", action: "set", email: "Brian@X.co", subscribed: true, at: "2026-11-23T14:00:00Z" }, { bind: false });
+  assert.equal(r.status, 200); assert.equal(r.body.result, "subscribed");
+  r = await relay(db, { tenant: "mattc1", action: "set", email: "matt@x.co", subscribed: true, at: "2026-11-23T14:00:00Z" }, { bind: false });
+  assert.equal(r.body.result, "subscribed", "an onboarded owner (kept_host / kept_email) is bound");
+  await relay(db, SET("other@x.co", true));          // someone else's own server put them on the list
+  const before = rows(db);
+  const refusals = [];
+  // zmich's server tries another address: on the list, not on the list, and Matt's (another tenant's owner)
+  for (const email of ["other@x.co", "nobody@x.co", "matt@x.co"]) {
+    for (const b of [{ action: "set", subscribed: false, at: "2026-11-23T15:00:00Z" }, { action: "set", subscribed: true, at: "2026-11-23T15:00:00Z" }, { action: "status" }]) {
+      const x = await relay(db, { tenant: "zmich", email, ...b }, { bind: false });
+      refusals.push([x.status, JSON.stringify(x.body)]);
+    }
+  }
+  assert.ok(refusals.every(([st, b]) => st === 403 && b === JSON.stringify({ ok: false, result: "not_bound" })), JSON.stringify(refusals));
+  assert.deepEqual(rows(db), before, "nothing written by a refused request");
+  // a server built before the invite form (no record at all)
+  r = await relay(db, { tenant: "t02", action: "status", email: "matt@x.co" }, { bind: false });
+  assert.deepEqual([r.status, r.body.result], [403, "not_bound"]);
+});
+
+test("N13 a 'no' always wins over Allen's Add, in both orders, including a 'no' delayed while bervo.ai was down", async () => {
+  // order A: the owner's "no" lands first -> Add refused
+  let db = makeD1();
+  await relay(db, SET("a@x.co", false, "2026-11-23T10:00:00Z"));
+  assert.equal((await adminPost(db, { action: "add", email: "a@x.co" })).location, "/admin/newsletter?msg=suppressed");
+  assert.equal(rows(db)[0].status, "unsubscribed");
+  // order B: the "no" was made at 10:00 while bervo.ai was down; Allen adds at NOW (15:00); the retry arrives later
+  db = makeD1();
+  assert.equal((await adminPost(db, { action: "add", email: "b@x.co" })).location, "/admin/newsletter?msg=added");
+  const r = await relay(db, SET("b@x.co", false, "2026-11-23T10:00:00Z"));
+  assert.equal(r.body.result, "unsubscribed", "a delayed no is never stale");
+  assert.deepEqual(rows(db), [{ email: "b@x.co", status: "unsubscribed", source: null, opted_in_at: null, opted_out_at: new Date(NOW).toISOString() }]);
+  assert.equal((await adminPost(db, { action: "add", email: "b@x.co" })).location, "/admin/newsletter?msg=suppressed");
+  // a delayed "yes" older than the Add stays stale (nothing changes); the owner's newer yes still works
+  db = makeD1();
+  await adminPost(db, { action: "add", email: "c@x.co" });
+  assert.equal((await relay(db, SET("c@x.co", true, "2026-11-23T10:00:00Z"))).body.result, "stale");
+  assert.equal(rows(db)[0].source, "admin");
 });

@@ -63,20 +63,42 @@ async function writeUnsubscribed(db, email, at) {
 // The owner's own choice, relayed from their server (setup screen or Settings switch).
 // subscribed=false for an address not on the list stores a suppression entry (see the build report: so Allen's Add
 // can never add someone who said no at setup).
+// Fix round 1 (verifier-opus): a "no" ALWAYS wins. It is never stale: a "no" made while bervo.ai was down and
+// delivered after Allen's Add still unsubscribes (stamped now, so the row's newest time moves forward). Only a "yes"
+// can be stale (older than an unsubscribe or an Add already on record).
 // -> { result: "subscribed"|"unsubscribed"|"unchanged"|"stale", status, changed_at }
 export async function applyOwnerChoice(db, { email, subscribed, at, nowMs }) {
   const when = changeTime(at, nowMs);
   const row = await rowFor(db, email);
   const last = newest(row);
-  if (row && last && when < last) return { result: "stale", ...(await statusOf(db, email)) };
-  if (subscribed) {
-    if (row && row.status === "subscribed") return { result: "unchanged", status: "subscribed", changed_at: last };
-    await writeSubscribed(db, email, "setup", when);
-    return { result: "subscribed", status: "subscribed", changed_at: when };
+  if (!subscribed) {
+    if (row && row.status === "unsubscribed") return { result: "unchanged", status: "unsubscribed", changed_at: last };
+    const out = row && last && when < last ? new Date(nowMs).toISOString() : when;
+    await writeUnsubscribed(db, email, out);
+    return { result: "unsubscribed", status: "unsubscribed", changed_at: out };
   }
-  if (row && row.status === "unsubscribed") return { result: "unchanged", status: "unsubscribed", changed_at: last };
-  await writeUnsubscribed(db, email, when);
-  return { result: "unsubscribed", status: "unsubscribed", changed_at: when };
+  if (row && last && when < last) return { result: "stale", ...(await statusOf(db, email)) };
+  if (row && row.status === "subscribed") return { result: "unchanged", status: "subscribed", changed_at: last };
+  await writeSubscribed(db, email, "setup", when);
+  return { result: "subscribed", status: "subscribed", changed_at: when };
+}
+
+// Fix round 1 (verifier-opus): the address must be THIS server's owner on record. The router names the tenant from the
+// server's own token and signs it; this checks that the email is the one bervo.ai holds for that tenant: the invite
+// request's email while it carries the tenant's address code (slug), or kept_email once onboarded (kept_host). A
+// read-only equality test: nothing from invite_requests is copied into the newsletter table (test N11).
+// Servers built before the invite form (tenant zero, t01, t02, the demos) have no such record: refused ("not_bound"),
+// and Allen's Add is the way onto the list for those owners (decision 3).
+export async function ownerMatches(db, tenant, email) {
+  try {
+    const hit = await db.prepare("SELECT 1 AS x FROM invite_requests WHERE (slug = ? AND lower(email) = ?) OR " +
+      "(status = 'claimed' AND kept_host = ? AND lower(kept_email) = ?) LIMIT 1").bind(tenant, email, tenant, email).first();
+    return !!hit;
+  } catch {
+    try {   // before migration 0010 (no kept_* columns)
+      return !!(await db.prepare("SELECT 1 AS x FROM invite_requests WHERE slug = ? AND lower(email) = ? LIMIT 1").bind(tenant, email).first());
+    } catch { return false; }
+  }
 }
 
 // An unsubscribe from the one-click page, Postmark (unsubscribe / spam complaint) or Allen's Unsubscribe button.

@@ -50,7 +50,10 @@ files that export `onRequest…`. So everything that is not part of the site liv
   postmark-events). `functions/newsletter/unsubscribe.js` is the one-click link (`?t=` = HMAC with Pages secret
   `NEWSLETTER_UNSUB_SECRET`, 32+ characters; GET shows a button, POST or RFC 8058 one-click unsubscribes).
   `functions/admin/newsletter.js` is the admin Newsletter tab (count, list, Add, Unsubscribe, Export CSV). Invite-request
-  data never feeds it. Tests: `functions/_dev/tests/newsletter.test.js` (N1-N11).
+  data never feeds it. Fix round 1: `/api/newsletter` answers only when the email is the signed tenant's owner on record
+  (`ownerMatches`: the invite request with that slug, or kept_host/kept_email once onboarded; a read-only check), else
+  403 `not_bound`; servers built before the invite form (tenant zero, t01, t02, the demos) are refused and rely on
+  Allen's Add. A "no" is never stale (it always wins over an Add). Tests: `functions/_dev/tests/newsletter.test.js` (N1-N13).
 - `functions/_dev/tests/invite.test.js` — tests: `node --experimental-default-type=module --test functions/_dev/tests/invite.test.js`
   (Node 22+, no packages; D1 is mocked over `node:sqlite` with the real schema). It exports nothing, so it is never a route.
 
