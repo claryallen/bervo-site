@@ -30,6 +30,16 @@ files that export `onRequest…`. So everything that is not part of the site liv
   code the admin page pre-fills (`<code>.bervo.ai`; letters and digits without `0 o 1 l i`, first a letter, never a
   reserved name or a code already in D1). The same rules live in daily-dashboard `tools/tenant/address_code.py`;
   its `test_address_code.py` compares the two. Tests: `functions/_dev/tests/addresscode.test.js`.
+- **Onboarded (CR-ONBOARDEDTAB.1, Allen 11-23):** `functions/_dev/migrations/0010_onboarded_label.sql` (run after 0009)
+  adds `kept_name` (first word of the first name + last initial), `kept_host` (the address code) and `kept_email`.
+  Mark onboarded is ONE D1 batch: the trim, the other dates erased (approved_at, invited_at, signed_up_at,
+  status_changed_at), cohort reset to 'public', the kept fields, and the request's invite_mail / invite_provision /
+  invite_links rows deleted (fix round 2, Allen 11-23). Only a missing column/table steps down to an older form; any
+  other error fails the action with nothing changed. `0011_sweep_claimed.sql` (fix round 3) is a one-time data sweep
+  for requests onboarded under the old trim (after 0010 and the publish; safe to run twice; preview SELECTs inside).
+  Every email record (`invite_mail`, request and server emails) is deleted 90 days after it was sent (`pruneOld`). `/api/provision-state` action `signed_up` takes an optional
+  `signed_up_at` (the real time the owner set their password; only ever moves the stored date earlier). Tests:
+  `functions/_dev/tests/admintabs.test.js` (O1-O6).
 - `functions/_dev/tests/invite.test.js` — tests: `node --experimental-default-type=module --test functions/_dev/tests/invite.test.js`
   (Node 22+, no packages; D1 is mocked over `node:sqlite` with the real schema). It exports nothing, so it is never a route.
 

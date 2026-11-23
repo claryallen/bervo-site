@@ -43,6 +43,12 @@ function makeD1({ mailTable = true } = {}) {
   const norm = (a) => a.map((v) => (v === undefined ? null : v));
   return {
     raw: sql,
+    // D1 runs a batch as one transaction: any failed statement rolls the whole batch back (CR-ONBOARDEDTAB.1)
+    async batch(stmts) {
+      sql.exec("BEGIN");
+      try { const out = []; for (const s of stmts) out.push(await s.run()); sql.exec("COMMIT"); return out; }
+      catch (e) { sql.exec("ROLLBACK"); throw e; }
+    },
     prepare(q) {
       let args = [];
       const st = {
@@ -428,21 +434,20 @@ test("M13 reminderDue: day 3, day 10, once each; never after a bounce/complaint,
 });
 
 // ---------- retention ----------
-test("M14 retention: Mark claimed clears the email rows' address hash; a deleted request takes its email rows with it", async () => {
+test("M14 retention: Mark onboarded deletes the request's email rows (CR-ONBOARDEDTAB.1 fix round 2); a deleted request takes its email rows with it", async () => {
   const db = makeD1();
   const id = seed(db);
   await adminPost(db, { id: String(id), action: "send_invite", link: LINK });
   assert.ok(mailRows(db)[0].address_hash);
   await adminPost(db, { id: String(id), action: "claimed" });
   assert.equal(request(db, id).status, "claimed");
-  assert.equal(mailRows(db)[0].address_hash, null);
-  assert.equal(mailRows(db)[0].template, "invite");
+  assert.deepEqual(mailRows(db), [], "its email records are gone (not only their address hash)");
   const other = seed(db, { email: "lee@example.com", first: "Lee" });
   await adminPost(db, { id: String(other), action: "send_invite", link: LINK });
   db.raw.prepare("UPDATE invite_requests SET status = 'expired', status_changed_at = '2026-01-01T00:00:00Z' WHERE id = ?").run(other);
   await pruneOld(db, NOW);
   assert.equal(request(db, other), undefined);
-  assert.deepEqual(mailRows(db).map((m) => m.request_id), [id]);
+  assert.deepEqual(mailRows(db).map((m) => m.request_id), []);
 });
 
 // ---------- no key in the repository ----------
@@ -632,17 +637,26 @@ test("M19b relay (CR-POSTREH1121.1): texts_mac / texts_android send once each pe
   assert.ok(!kept.toLowerCase().includes("pat"), "no address or name kept");
 });
 
-test("M21 retention: a server's 'loaded' row keeps its hash 90 days, then only the once-only record stays", async () => {
+test("M21 retention (CR-ONBOARDEDTAB.1 fix round 3, privacy 1.15 draft): every email record is deleted 90 days after it was sent; until then a server's second 'loaded' is refused here", async () => {
   const db = makeD1();
   await relayPost(db, await signed(LOADED()));
-  db.raw.prepare("UPDATE invite_mail SET created_at = '2026-08-01T00:00:00Z'").run();
+  const id = seed(db);
+  await adminPost(db, { id: String(id), action: "send_invite", link: LINK });
+  assert.deepEqual(mailRows(db).map((m) => m.tenant || "request").sort(), ["request", "zz-test"]);
+  // 89 days after sending: both kept, and the once-per-server rule still answers here
+  db.raw.prepare("UPDATE invite_mail SET created_at = ?").run(new Date(NOW - 89 * 86400000).toISOString());
   await pruneOld(db, NOW);
-  const row = mailRows(db)[0];
-  assert.equal(row.address_hash, null);
-  assert.equal(row.tenant, "zz-test");
+  assert.equal(mailRows(db).length, 2, "89 days: kept");
   const calls = [];
   assert.equal((await relayPost(db, await signed(LOADED()), { calls })).body.result, "already_sent");
   assert.equal(calls.length, 0);
+  // 91 days: both deleted, nothing kept on bervo.ai (no marker); the request itself is untouched (it has its own rule)
+  db.raw.prepare("UPDATE invite_mail SET created_at = ?").run(new Date(NOW - 91 * 86400000).toISOString());
+  await pruneOld(db, NOW);
+  assert.deepEqual(mailRows(db), [], "91 days: every record gone");
+  assert.equal(request(db, id).status, "invited");
+  const tables = db.raw.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all().map((t) => t.name);
+  assert.ok(!tables.some((t) => /sent|marker/i.test(t)), "no marker table");
 });
 
 test("M22 the router's own signing code (node:crypto createHmac, bervo_router/index.mjs) is accepted here", async () => {

@@ -6,12 +6,46 @@ export const ABOUT_MAX = 1000;                 // "Tell us about you and your bu
 export const RATE_LIMIT_PER_DAY = 5;           // per salted IP hash per UTC day (spec §A)
 export const RATE_KEEP_DAYS = 7;               // salted hashes are dropped after 7 days (spec §A)
 export const NOT_NOW_KEEP_DAYS = 90;           // "not now", expired and unanswered (new/approved, never invited) requests are deleted 90 days after their last status change (Allen 11-11)
-// Allen 11-10 ("Yes, 90 days"): once the customer is live (claimed) a request keeps only id, cohort, status and
-// dates, plus the plan they chose (like cohort). TRIM_SET nulls everything else; the schema's table CHECK refuses a claimed row that still holds any of it.
+// Allen 11-10 ("Yes, 90 days") and CR-ONBOARDEDTAB.1 (11-23): an onboarded (stored 'claimed') request keeps only id,
+// status, plan, created_at / privacy_agreed_at (the request date) and kept_name / kept_host / kept_email. TRIM_SET nulls
+// the form fields (the schema's table CHECK refuses a claimed row that still holds any of them); ONBOARD_ERASE_SET and
+// ONBOARD_ERASE_SIGNED_UP erase the other dates and reset cohort (admin/invites.js onboardBatch).
 export const TRIMMED_COLUMNS = ["first_name", "last_name", "email", "has_assistant",
   "email_providers", "other_email", "computers", "phone", "heard_from", "heard_detail", "timezone", "about", "referral", "slug", "note"];
 export const OTHER_EMAIL_MAX = 40;             // "What other email account(s)?" (shown when Other is ticked; 0003 migration)
 export const TRIM_SET = TRIMMED_COLUMNS.map((c) => `${c} = NULL`).join(", ");
+// CR-ONBOARDEDTAB.1 (Allen 11-23, "keep first name + initial and address"): Mark onboarded (stored status 'claimed')
+// also writes these two, in the same UPDATE as the trim (migration 0010; before it the trim runs without them).
+// kept_name = first name + last initial ("Ashley C"); kept_host = the address code ("reh1120" -> reh1120.bervo.ai);
+// kept_email = their email address (Allen 11-23, "yes, keep email too").
+export const KEPT_COLUMNS = ["kept_name", "kept_host", "kept_email"];
+// CR-ONBOARDEDTAB.1 fix round 2 (Allen 11-23, "yes"): an onboarded row keeps ONLY id, status, plan, created_at (the
+// request date), privacy_agreed_at (the same moment; NOT NULL) and the three kept fields. In the same UPDATE as the trim
+// the other dates are erased and cohort is reset to 'public' (NOT NULL; it must no longer say whether a personal link
+// was used). signed_up_at (0009) goes in its own piece so the UPDATE still works on a database without 0009.
+export const ONBOARD_ERASE_SET = "approved_at = NULL, invited_at = NULL, status_changed_at = NULL, cohort = 'public'";
+export const ONBOARD_ERASE_SIGNED_UP = "signed_up_at = NULL";
+export const KEPT_NAME_MAX = 40;               // 0010's CHECK
+export const KEPT_HOST_MAX = 63;               // 0010's CHECK (a slug is at most 31)
+export const KEPT_EMAIL_MAX = 254;             // 0010's CHECK (the form's own limit)
+
+// -> { kept_name, kept_host, kept_email } from a full (not yet trimmed) request row; any may be null.
+export function keptLabel(row) {
+  // fix round 2 (verifier-opus): the FIRST WORD of the first name only, so a full name typed as a first name
+  // ("Ashley Clary") never keeps the last name
+  const first = stripFormatChars(String(row?.first_name ?? "")).trim().split(/\s+/)[0] || "";
+  const initial = [...stripFormatChars(String(row?.last_name ?? "")).trim()][0] || "";
+  let name = null;
+  if (first) {
+    const tail = initial ? ` ${initial.toUpperCase()}` : "";
+    name = [...first].slice(0, KEPT_NAME_MAX - [...tail].length).join("").trim() + tail;
+  }
+  const slug = String(row?.slug ?? "").trim().toLowerCase();
+  const host = SLUG_RE.test(slug) && slug.length <= KEPT_HOST_MAX ? slug : null;
+  const email = String(row?.email ?? "").trim().toLowerCase();
+  const kept_email = email.length >= 3 && email.length <= KEPT_EMAIL_MAX && EMAIL_RE.test(email) ? email : null;
+  return { kept_name: name || null, kept_host: host, kept_email };
+}
 export const MIN_FILL_MS = 2000;               // a form filled faster than this is a bot (spec §A)
 export const REFERRALS = ["allen"];            // bervo.ai/invite?from=allen -> "personal invite" (display only)
 export const PROVIDERS = ["google", "microsoft", "other"];   // onboarding.py's account providers; stored in this order
@@ -144,10 +178,14 @@ export async function pruneOld(db, nowMs) {
   await db.prepare("DELETE FROM invite_requests WHERE status IN ('new', 'approved', 'not_now', 'expired') AND status_changed_at < ?")
     .bind(cutoff).run();
   // CR-WELCOMEEMAIL.1: an email record goes with its request (and clears its address hash once trimmed).
+  // CR-ONBOARDEDTAB.1 fix round 3 (privacy 1.15 draft: "we delete each record 90 days after the email is sent"): every
+  // email record, account emails by server (loaded / texts_*) and request emails alike, is deleted 90 days after its
+  // created_at (the send time). Nothing on bervo.ai keeps a marker after that. A second account email for the same
+  // server is still prevented by the customer server (_meta.load_email_at / _meta.texts_email_at, written once) and by
+  // the router (account_mail.json, per tenant and template); see the build report.
   try {
     await db.prepare("DELETE FROM invite_mail WHERE request_id IS NOT NULL AND request_id NOT IN (SELECT id FROM invite_requests)").run();
-    await db.prepare("UPDATE invite_mail SET address_hash = NULL WHERE tenant IS NOT NULL AND address_hash IS NOT NULL AND created_at < ?")
-      .bind(cutoff).run();
+    await db.prepare("DELETE FROM invite_mail WHERE created_at < ?").bind(cutoff).run();
     await db.prepare("UPDATE invite_mail SET address_hash = NULL WHERE address_hash IS NOT NULL AND request_id IN " +
       "(SELECT id FROM invite_requests WHERE status = 'claimed')").run();
   } catch { /* the 0002 table is not there yet */ }

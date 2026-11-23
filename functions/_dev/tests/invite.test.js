@@ -31,6 +31,12 @@ function makeD1() {
   const norm = (a) => a.map((v) => (v === undefined ? null : v));
   const db = {
     raw: sql,
+    // D1 runs a batch as one transaction: any failed statement rolls the whole batch back (CR-ONBOARDEDTAB.1)
+    async batch(stmts) {
+      sql.exec("BEGIN");
+      try { const out = []; for (const s of stmts) out.push(await s.run()); sql.exec("COMMIT"); return out; }
+      catch (e) { sql.exec("ROLLBACK"); throw e; }
+    },
     prepare(q) {
       let args = [];
       const st = {
@@ -539,7 +545,7 @@ test("cohort: a request from the personal link is 'private', every other 'public
 });
 
 // ---------- retention (Allen 11-10, "Yes, 90 days") ----------
-test("Mark claimed trims the row to id, cohort, status and dates in the same update; the page shows only those", async () => {
+test("Mark onboarded (fix round 2) trims the row to id, plan, status and the request date in the same update; cohort reset; the page shows only those", async () => {
   const db = await seeded();
   const jwt = await makeJwt({});
   await adminPost(db, { id: "1", action: "approve", slug: "ann-s", note: "n" }, { jwt });
@@ -552,10 +558,11 @@ test("Mark claimed trims the row to id, cohort, status and dates in the same upd
   assert.equal(r.status, "claimed");
   for (const c of ["first_name", "last_name", "email", "has_assistant", "email_providers", "other_email", "computers", "phone",
     "heard_from", "heard_detail", "timezone", "about", "referral", "slug", "note"]) assert.equal(r[c], null, c);
-  assert.equal(r.cohort, "private");
-  for (const c of ["id", "created_at", "privacy_agreed_at", "approved_at", "invited_at", "plan"]) assert.equal(r[c], before[c], c);
-  assert.equal(r.plan, "private", "the plan is kept with cohort");
-  assert.equal(r.status_changed_at, new Date(NOW).toISOString());
+  assert.equal(r.cohort, "public", "cohort reset: no record of the personal link (was private)");
+  assert.equal(before.cohort, "private");
+  for (const c of ["id", "created_at", "privacy_agreed_at", "plan"]) assert.equal(r[c], before[c], c);
+  for (const c of ["approved_at", "invited_at", "status_changed_at"]) assert.equal(r[c], null, c);
+  assert.equal(r.plan, "private", "the plan is kept");
   assert.deepEqual(rows(db)[1].first_name, "Ben", "the other row untouched");
   await adminPost(db, { id: "1", action: "note", note: "late" }, { jwt });
   assert.equal(rows(db)[0].note, null, "a trimmed row takes no note");
