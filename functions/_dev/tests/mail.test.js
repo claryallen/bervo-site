@@ -43,6 +43,12 @@ function makeD1({ mailTable = true } = {}) {
   const norm = (a) => a.map((v) => (v === undefined ? null : v));
   return {
     raw: sql,
+    // D1 runs a batch as one transaction: any failed statement rolls the whole batch back (CR-ONBOARDEDTAB.1)
+    async batch(stmts) {
+      sql.exec("BEGIN");
+      try { const out = []; for (const s of stmts) out.push(await s.run()); sql.exec("COMMIT"); return out; }
+      catch (e) { sql.exec("ROLLBACK"); throw e; }
+    },
     prepare(q) {
       let args = [];
       const st = {
@@ -428,21 +434,20 @@ test("M13 reminderDue: day 3, day 10, once each; never after a bounce/complaint,
 });
 
 // ---------- retention ----------
-test("M14 retention: Mark claimed clears the email rows' address hash; a deleted request takes its email rows with it", async () => {
+test("M14 retention: Mark onboarded deletes the request's email rows (CR-ONBOARDEDTAB.1 fix round 2); a deleted request takes its email rows with it", async () => {
   const db = makeD1();
   const id = seed(db);
   await adminPost(db, { id: String(id), action: "send_invite", link: LINK });
   assert.ok(mailRows(db)[0].address_hash);
   await adminPost(db, { id: String(id), action: "claimed" });
   assert.equal(request(db, id).status, "claimed");
-  assert.equal(mailRows(db)[0].address_hash, null);
-  assert.equal(mailRows(db)[0].template, "invite");
+  assert.deepEqual(mailRows(db), [], "its email records are gone (not only their address hash)");
   const other = seed(db, { email: "lee@example.com", first: "Lee" });
   await adminPost(db, { id: String(other), action: "send_invite", link: LINK });
   db.raw.prepare("UPDATE invite_requests SET status = 'expired', status_changed_at = '2026-01-01T00:00:00Z' WHERE id = ?").run(other);
   await pruneOld(db, NOW);
   assert.equal(request(db, other), undefined);
-  assert.deepEqual(mailRows(db).map((m) => m.request_id), [id]);
+  assert.deepEqual(mailRows(db).map((m) => m.request_id), []);
 });
 
 // ---------- no key in the repository ----------

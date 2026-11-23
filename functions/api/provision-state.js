@@ -23,7 +23,8 @@
 //                                             on their server). Clamped: never later than now, never before invited_at
 //                                             (else created_at). The first report stores it (no field: now, as before);
 //                                             a later report only ever moves a stored date EARLIER ("corrected"; an
-//                                             invited or onboarded request), else "already". A bad value -> 400.
+//                                             invited request only: an onboarded request has no dates any more, fix
+//                                             round 2), else "already". A bad value -> 400.
 // A failed row is never claimable: only the admin page's Retry (failed -> queued) makes it buildable again.
 // Signed like /api/account-mail with its own secret (BERVO_PROVISION_SECRET; 5 minutes; each signature once).
 import { MAX_BYTES, NOTE_CODES, reply, RUN_ID_RE, STEPS, verifySigned } from "../_lib/provision.js";
@@ -84,9 +85,9 @@ export async function onRequestPost(context) {
       else {
         const cur = await db.prepare("SELECT status, signed_up_at FROM invite_requests WHERE id = ?").bind(id).first();
         if (!cur || !cur.signed_up_at) result = "not_allowed";
-        else if (at && (cur.status === "invited" || cur.status === "claimed") && Date.parse(at) < Date.parse(cur.signed_up_at)) {
+        else if (at && cur.status === "invited" && Date.parse(at) < Date.parse(cur.signed_up_at)) {
           // only ever earlier; the guard on the old value means two reports can never move it back later
-          const r = await db.prepare("UPDATE invite_requests SET signed_up_at = ? WHERE id = ? AND signed_up_at = ? AND status IN ('invited', 'claimed')")
+          const r = await db.prepare("UPDATE invite_requests SET signed_up_at = ? WHERE id = ? AND signed_up_at = ? AND status = 'invited'")
             .bind(at, id, cur.signed_up_at).run();
           result = Number(r?.meta?.changes ?? 0) === 1 ? "corrected" : "already";
         } else result = "already";

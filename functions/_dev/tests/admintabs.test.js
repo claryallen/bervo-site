@@ -33,6 +33,12 @@ function makeD1({ signedUp = true, kept = true } = {}) {
   const norm = (a) => a.map((v) => (v === undefined ? null : v));
   return {
     raw: sql,
+    // D1 runs a batch as one transaction: any failed statement rolls the whole batch back (CR-ONBOARDEDTAB.1)
+    async batch(stmts) {
+      sql.exec("BEGIN");
+      try { const out = []; for (const s of stmts) out.push(await s.run()); sql.exec("COMMIT"); return out; }
+      catch (e) { sql.exec("ROLLBACK"); throw e; }
+    },
     prepare(q) {
       let args = [];
       const st = {
@@ -309,18 +315,26 @@ test("T9 every row button has a tooltip (Mark onboarded and Mark expired include
   for (const m of btns) assert.ok(/ title="[^"]+"/.test(m[0]), m[0]);
 });
 
-// ---------- CR-ONBOARDEDTAB.1: Onboarded (was Claimed), keep First L + address + email, the real sign-up time ----------
-async function adminPost(db, fields) {
+// ---------- CR-ONBOARDEDTAB.1: Onboarded (was Claimed), keep only First L + address + email + plan + request date ----------
+async function adminPost(db, fields, env = ENV(db)) {
   _resetAccessKeyCache();
   const res = await admin.onRequestPost({ request: new Request(`${ORIGIN}/admin/invites`, { method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded", "Cf-Access-Jwt-Assertion": await makeJwt(), Origin: ORIGIN, "Sec-Fetch-Site": "same-origin" },
-    body: new URLSearchParams(fields).toString() }), env: ENV(db), fetchImpl: certsFetch, nowMs: NOW });
+    body: new URLSearchParams(fields).toString() }), env, fetchImpl: certsFetch, nowMs: NOW });
   return { status: res.status, location: res.headers.get("Location") };
 }
-const ONBOARD_TIP = "This customer is in use. Erases their form details on bervo.ai; keeps first name, last initial, their Bervo address and their email address.";
+const ONBOARD_TIP = "This customer is in use. Erases their form details and dates on bervo.ai; keeps their first name and last initial, Bervo address, email address, plan and request date.";
 const TRIMMED = ["first_name", "last_name", "email", "has_assistant", "email_providers", "other_email", "computers", "phone",
   "heard_from", "heard_detail", "timezone", "about", "referral", "slug", "note"];
+const ERASED_DATES = ["approved_at", "invited_at", "signed_up_at", "status_changed_at"];
 const row = (db, id) => db.raw.prepare("SELECT * FROM invite_requests WHERE id = ?").get(id);
+const count = (db, table, id) => Number(db.raw.prepare(`SELECT count(*) AS n FROM ${table} WHERE request_id = ?`).get(id).n);
+function records(db, id) {   // an email record, a build record and a waiting link for this request
+  db.raw.prepare("INSERT INTO invite_mail (request_id, template, status, address_hash, created_at) VALUES (?, 'invite', 'delivered', 'abcdef0123456789', '2026-11-21T10:00:00Z')").run(id);
+  setProv(db, id, "ready");
+  db.raw.prepare("INSERT INTO invite_links (request_id, kind, iv, ct, created_at, expires_at) VALUES (?, 'reminder3', 'AAAAAAAAAAAAAAAA', 'BBBBBBBBBBBBBBBBBBBBBBBB', ?, ?)")
+    .run(id, new Date(NOW).toISOString(), new Date(NOW + 86400000).toISOString());
+}
 
 test("O1 the tab is 'Onboarded' (old ?show=claimed links land there); the button is 'Mark onboarded' with its tooltip; no 'Claimed' / 'Mark claimed' words left", async () => {
   const db = makeD1();
@@ -341,42 +355,50 @@ test("O1 the tab is 'Onboarded' (old ?show=claimed links land there); the button
   }
 });
 
-test("O2 Mark onboarded (after 0010): the trim erases every form field and keeps exactly First L, the address and the email; the card and row", async () => {
+test("O2 Mark onboarded (0009 + 0010): keeps ONLY id, status, plan, the request date, First L, address and email; every form field and other date erased, cohort reset; the card", async () => {
   const db = makeD1();
   const id = seed(db, { status: "invited", slug: "reh1120", invitedAt: "2026-11-20T11:00:00Z", first: "Ashley", last: "clary" });
-  db.raw.prepare("UPDATE invite_requests SET signed_up_at = ?, note = 'private note', other_email = 'x' WHERE id = ?").run("2026-11-20T14:06:31.000Z", id);
+  db.raw.prepare("UPDATE invite_requests SET signed_up_at = ?, note = 'private note', other_email = 'x', referral = 'allen', cohort = 'private' WHERE id = ?").run("2026-11-20T14:06:31.000Z", id);
   const before = row(db, id);
   const res = await adminPost(db, { id: String(id), action: "claimed" });
-  assert.equal(res.status, 303);
+  assert.deepEqual([res.status, res.location], [303, `/admin/invites#r${id}`]);
   const r = row(db, id);
-  assert.equal(r.status, "claimed");
-  for (const c of TRIMMED) assert.equal(r[c], null, c);
-  assert.deepEqual([r.kept_name, r.kept_host, r.kept_email], ["Ashley C", "reh1120", "pat@example.com"]);
-  const keptCols = Object.keys(r).filter((k) => k.startsWith("kept_"));
-  assert.deepEqual(keptCols.sort(), ["kept_email", "kept_host", "kept_name"], "exactly three kept fields");
-  for (const c of ["id", "created_at", "plan", "cohort", "approved_at", "invited_at", "signed_up_at", "privacy_agreed_at"]) assert.equal(r[c], before[c], c);
+  const kept = Object.entries(r).filter(([, v]) => v !== null).map(([k]) => k).sort();
+  assert.deepEqual(kept, ["created_at", "id", "kept_email", "kept_host", "kept_name", "plan", "privacy_agreed_at", "status", "cohort"].sort(),
+    "the only non-empty columns (cohort is NOT NULL: reset to 'public')");
+  assert.deepEqual([r.status, r.cohort, r.kept_name, r.kept_host, r.kept_email], ["claimed", "public", "Ashley C", "reh1120", "pat@example.com"]);
+  for (const c of [...TRIMMED, ...ERASED_DATES]) assert.equal(r[c], null, c);
+  for (const c of ["id", "created_at", "plan", "privacy_agreed_at"]) assert.equal(r[c], before[c], c);
   const page = (await adminGet(db, "?show=onboarded")).body;
   const a = art(page, id);
-  assert.ok(a.includes(`<p class="sum">Ashley C · reh1120.bervo.ai · onboarded 2026-11-23 15:00 UTC · signed up 2026-11-20 14:06 UTC</p>`), a);
+  assert.ok(a.includes(`<p class="sum">Ashley C · reh1120.bervo.ai · requested 2026-11-20 10:00 UTC</p>`), a);
   assert.ok(a.includes("#" + id + " · Ashley C <span class=\"status s-onboarded\">onboarded</span>"));
+  assert.ok(a.includes("kept: their first name and last initial, Bervo address, email address, plan and request date."), "the notice lists only what is kept");
+  assert.ok(a.includes("<dl><dt>Requested</dt><dd>2026-11-20 10:00 UTC</dd><dt>Plan</dt><dd>Dedicated $99/mo</dd></dl>"), "no other date, no cohort");
+  for (const w of ["Onboarded</dt>", "Signed up", "Approved", "Invited", "Cohort", "onboarded 20", "signed up 20", " UTC UTC", "> UTC"]) assert.ok(!a.includes(w), w);
   const sum = a.match(/<p class="sum">.*?<\/p>/)[0], h2 = a.match(/<h2>.*?<\/h2>/)[0];
   assert.ok(!sum.includes("example.com") && !h2.includes("example.com"), "the email is not on the summary line or heading");
   assert.ok(a.includes('<details class="answers"><summary>Email address</summary><p><!--email_off-->pat@example.com<!--/email_off--></p></details>'), "only inside the folded details");
-  assert.ok(!a.includes(" open>") && !page.includes("Sample") && !page.includes("private note") && !page.includes("small firm"), "nothing else from the form");
-  assert.ok(page.includes(`<details class="row"><summary>#${id} · Ashley C · <span class="status s-onboarded">onboarded</span>`), "compact row");
+  assert.ok(!page.includes("Sample") && !page.includes("private note") && !page.includes("small firm"), "nothing else from the form");
+  assert.ok(page.includes(`<details class="row"><summary>#${id} · Ashley C · <span class="status s-onboarded">onboarded</span> · Dedicated $99/mo · 2026-11-20 10:00 UTC</summary>`), "compact row: the request date");
   assert.equal((page.match(/<script/g) || []).length, 1); assert.ok(!page.includes("—"));
 });
 
-test("O3 before 0010: Mark onboarded trims exactly as before (no kept fields) and the card reads '(trimmed)'", async () => {
-  const db = makeD1({ kept: false });
-  const id = seed(db, { status: "invited", slug: "zz-o", invitedAt: "2026-11-20T11:00:00Z" });
-  assert.equal((await adminPost(db, { id: String(id), action: "claimed" })).status, 303);
-  const r = row(db, id);
-  assert.equal(r.status, "claimed");
-  for (const c of TRIMMED) assert.equal(r[c], null, c);
-  assert.ok(!("kept_name" in r));
-  const a = art((await adminGet(db, "?show=onboarded")).body, id);
-  assert.ok(a.includes("(trimmed)") && a.includes('<p class="sum">onboarded 2026-11-23 15:00 UTC</p>') && !a.includes("Email address"), a);
+test("O3 older databases: before 0010 the trim + date erase run without kept fields ('(trimmed)'); before 0009 too", async () => {
+  for (const [label, opts] of [["no 0010", { kept: false }], ["no 0009, no 0010", { signedUp: false }]]) {
+    const db = makeD1(opts);
+    const id = seed(db, { status: "invited", slug: "zz-o", invitedAt: "2026-11-20T11:00:00Z" });
+    records(db, id);
+    assert.equal((await adminPost(db, { id: String(id), action: "claimed" })).status, 303, label);
+    const r = row(db, id);
+    assert.equal(r.status, "claimed", label);
+    for (const c of [...TRIMMED, "approved_at", "invited_at", "status_changed_at"]) assert.equal(r[c], null, `${label}: ${c}`);
+    assert.ok(!("kept_name" in r), label);
+    assert.deepEqual([count(db, "invite_mail", id), count(db, "invite_provision", id), count(db, "invite_links", id)], [0, 0, 0], `${label}: records deleted`);
+    const a = art((await adminGet(db, "?show=onboarded")).body, id);
+    assert.ok(a.includes("(trimmed)") && a.includes('<p class="sum">requested 2026-11-20 10:00 UTC</p>') && !a.includes("Email address")
+      && a.includes("kept: the plan and the request date."), `${label}: ${a}`);
+  }
 });
 
 test("O4 0010: three nullable columns, refused on any row that is not onboarded and over their lengths; not safe to run twice", () => {
@@ -394,7 +416,7 @@ test("O4 0010: three nullable columns, refused on any row that is not onboarded 
   assert.ok(stmts.every((l) => l.startsWith("ALTER TABLE invite_requests ADD COLUMN kept_")));
 });
 
-test("O5 signed_up_at: stored on the first report, clamped to [invited_at, now]; later reports only ever move it earlier; a bad value refused", async () => {
+test("O5 signed_up_at: stored on the first report, clamped to [invited_at, now]; later reports only ever move it earlier; an onboarded request (no dates) answers 409 not_allowed and stays empty; a bad value refused", async () => {
   const db = makeD1();
   const inv = "2026-11-20T11:00:00Z";
   const mk = () => seed(db, { status: "invited", slug: `zz${Math.random().toString(36).slice(2, 8)}`, invitedAt: inv });
@@ -416,17 +438,20 @@ test("O5 signed_up_at: stored on the first report, clamped to [invited_at, now];
   id = mk();
   r = await state(db, { action: "signed_up", request_id: id });
   assert.deepEqual([r.body.result, at(id)], ["recorded", new Date(NOW).toISOString()], "no field: today's behavior (now)");
-  // Ashley's shape: detected 11-23 14:06, really 11-20 14:06; corrected once she is onboarded too
+  // onboarded: every date erased; a late report (with or without a time) is refused cleanly and writes nothing
   id = mk();
   db.raw.prepare("UPDATE invite_requests SET signed_up_at = ? WHERE id = ?").run("2026-11-23T14:06:00.000Z", id);
   await adminPost(db, { id: String(id), action: "claimed" });
-  r = await state(db, { action: "signed_up", request_id: id, signed_up_at: "2026-11-20T14:06:31Z" });
-  assert.deepEqual([r.status, r.body.result, at(id), row(db, id).status], [200, "corrected", "2026-11-20T14:06:31.000Z", "claimed"]);
+  for (const body of [{ signed_up_at: "2026-11-20T14:06:31Z" }, {}]) {
+    r = await state(db, { action: "signed_up", request_id: id, ...body });
+    assert.deepEqual([r.status, r.body.result, at(id), row(db, id).status], [409, "not_allowed", null, "claimed"], JSON.stringify(body));
+  }
+  const id2 = mk();
   for (const bad of ["2026-11-20 14:06:31", "2026-11-20T14:06:31", "2026-11-20T09:06:31-05:00", "yesterday", 5, "2026-13-45T99:99:99Z"]) {
-    r = await state(db, { action: "signed_up", request_id: id, signed_up_at: bad });
+    r = await state(db, { action: "signed_up", request_id: id2, signed_up_at: bad });
     assert.deepEqual([r.status, r.body.result], [400, "bad_signed_up_at"], String(bad));
   }
-  assert.equal(at(id), "2026-11-20T14:06:31.000Z", "a refused value changes nothing");
+  assert.equal(at(id2), null, "a refused value changes nothing");
   const ap = seed(db, { status: "approved", slug: "zz-ap" });
   r = await state(db, { action: "signed_up", request_id: ap, signed_up_at: "2026-11-21T00:00:00Z" });
   assert.deepEqual([r.status, r.body.result, at(ap)], [409, "not_allowed", null]);
@@ -440,4 +465,57 @@ test("O6 a signed-up card: the invite email status, then 'Reminders stopped (sig
   const a = art((await adminGet(db, "?show=signed_up")).body, id);
   assert.ok(a.includes('<p class="timeline">Invite email: <span class="ms ms-delivered">delivered</span> · Reminders stopped (signed up)</p>'), a);
   assert.ok(!a.includes("Day-3 reminder") && !a.includes("Invitation ends"));
+});
+
+test("O7 Mark onboarded deletes this request's email records, build record and waiting links in the same batch; other requests' and server emails stay", async () => {
+  const db = makeD1();
+  const id = seed(db, { status: "invited", slug: "zz-a", invitedAt: "2026-11-20T11:00:00Z" });
+  const other = seed(db, { status: "invited", slug: "zz-b", invitedAt: "2026-11-20T11:00:00Z" });
+  records(db, id); records(db, other);
+  db.raw.prepare("INSERT INTO invite_mail (tenant, template, status, created_at) VALUES ('zz-t', 'loaded', 'sent', '2026-11-22T10:00:00Z')").run();
+  const batches = [];
+  const env = ENV(db);
+  const realBatch = db.batch.bind(db);
+  env.DB = { ...db, batch: async (s) => { batches.push(s.length); return realBatch(s); } };
+  await adminPost(db, { id: String(id), action: "claimed" }, env);
+  assert.deepEqual(batches, [4], "one batch: the UPDATE + three deletes");
+  assert.deepEqual([count(db, "invite_mail", id), count(db, "invite_provision", id), count(db, "invite_links", id)], [0, 0, 0]);
+  assert.deepEqual([count(db, "invite_mail", other), count(db, "invite_provision", other), count(db, "invite_links", other)], [1, 1, 1], "another request untouched");
+  assert.equal(Number(db.raw.prepare("SELECT count(*) AS n FROM invite_mail WHERE tenant = 'zz-t'").get().n), 1, "server emails stay");
+});
+
+test("O8 any D1 error other than a missing column/table fails Mark onboarded visibly and changes nothing (never a silent plain trim)", async () => {
+  const db = makeD1();
+  const id = seed(db, { status: "invited", slug: "zz-f", invitedAt: "2026-11-20T11:00:00Z" });
+  records(db, id);
+  const before = row(db, id);
+  const env = ENV(db);
+  let calls = 0;
+  env.DB = { ...db, batch: async () => { calls += 1; throw new Error("D1_ERROR: database is locked: SQLITE_BUSY"); },
+    prepare: (q) => { const st = db.prepare(q); if (/^UPDATE invite_requests/.test(q)) st.run = async () => { throw new Error("a plain UPDATE must not run"); }; return st; } };
+  const res = await adminPost(db, { id: String(id), action: "claimed" }, env);
+  assert.deepEqual([res.status, res.location], [303, `/admin/invites?sent=onboard_failed&r=${id}#r${id}`]);
+  assert.equal(calls, 1, "no retry in another form");
+  assert.deepEqual(row(db, id), before, "the row is unchanged");
+  assert.deepEqual([count(db, "invite_mail", id), count(db, "invite_provision", id), count(db, "invite_links", id)], [1, 1, 1], "records unchanged");
+  const a = art((await adminGet(db, `?sent=onboard_failed&r=${id}`)).body, id);
+  assert.ok(a.includes("Not marked onboarded: bervo.ai could not save it, so nothing changed. Try again."), "the message on its card");
+  // a real failure inside the batch (a constraint) rolls the whole batch back
+  db.raw.exec("CREATE TRIGGER no_del BEFORE DELETE ON invite_links BEGIN SELECT RAISE(ABORT, 'blocked'); END");
+  const res2 = await adminPost(db, { id: String(id), action: "claimed" });
+  assert.equal(res2.location, `/admin/invites?sent=onboard_failed&r=${id}#r${id}`);
+  assert.deepEqual(row(db, id), before, "rolled back: still invited, nothing trimmed");
+  assert.deepEqual([count(db, "invite_mail", id), count(db, "invite_provision", id)], [1, 1], "rolled back: records kept");
+});
+
+test("O9 kept_name is the FIRST WORD of the first name + the last initial (a full name typed as the first name never keeps the last name)", async () => {
+  const { keptLabel } = await import("../../_lib/invites.js");
+  for (const [first, last, want] of [["Ashley", "clary", "Ashley C"], ["Ashley Clary", "Clary", "Ashley C"], ["  Mary​ Ann  Smith ", "Jones", "Mary J"],
+    ["A".repeat(80), "Zed", "A".repeat(38) + " Z"], ["Ann", "", "Ann"], ["", "Zed", null]])
+    assert.equal(keptLabel({ first_name: first, last_name: last }).kept_name, want, JSON.stringify(first));
+  const db = makeD1();
+  const id = seed(db, { status: "invited", slug: "zz-w", invitedAt: "2026-11-20T11:00:00Z", first: "Ashley Clary", last: "Clary" });
+  await adminPost(db, { id: String(id), action: "claimed" });
+  assert.equal(row(db, id).kept_name, "Ashley C");
+  assert.ok(!(await adminGet(db, "?show=onboarded")).body.includes("Clary"));
 });

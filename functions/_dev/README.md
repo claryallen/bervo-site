@@ -31,8 +31,11 @@ files that export `onRequest…`. So everything that is not part of the site liv
   reserved name or a code already in D1). The same rules live in daily-dashboard `tools/tenant/address_code.py`;
   its `test_address_code.py` compares the two. Tests: `functions/_dev/tests/addresscode.test.js`.
 - **Onboarded (CR-ONBOARDEDTAB.1, Allen 11-23):** `functions/_dev/migrations/0010_onboarded_label.sql` (run after 0009)
-  adds `kept_name` (First L), `kept_host` (the address code) and `kept_email`, written by Mark onboarded in the same
-  UPDATE as the trim; before it the trim runs as before. `/api/provision-state` action `signed_up` takes an optional
+  adds `kept_name` (first word of the first name + last initial), `kept_host` (the address code) and `kept_email`.
+  Mark onboarded is ONE D1 batch: the trim, the other dates erased (approved_at, invited_at, signed_up_at,
+  status_changed_at), cohort reset to 'public', the kept fields, and the request's invite_mail / invite_provision /
+  invite_links rows deleted (fix round 2, Allen 11-23). Only a missing column/table steps down to an older form; any
+  other error fails the action with nothing changed. `/api/provision-state` action `signed_up` takes an optional
   `signed_up_at` (the real time the owner set their password; only ever moves the stored date earlier). Tests:
   `functions/_dev/tests/admintabs.test.js` (O1-O6).
 - `functions/_dev/tests/invite.test.js` — tests: `node --experimental-default-type=module --test functions/_dev/tests/invite.test.js`

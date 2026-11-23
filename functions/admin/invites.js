@@ -32,7 +32,9 @@
 // its reminder line reads "Reminders stopped (signed up)", and Mark onboarded keeps first name + last initial and the
 // address (kept_name / kept_host, migration 0010; before it the trim runs exactly as before), and their email address
 // (kept_email, Allen 11-23 "yes, keep email too"; shown only inside the card's folded details, never the summary line).
-import { checkAccess, escapeHtml, keptLabel, pruneOld, redirect, stripFormatChars, TRIM_SET } from "../_lib/invites.js";
+import { checkAccess, escapeHtml, keptLabel, ONBOARD_ERASE_SET, ONBOARD_ERASE_SIGNED_UP, pruneOld, redirect, stripFormatChars, TRIM_SET } from "../_lib/invites.js";
+// CR-ONBOARDEDTAB.1 fix round 2 (Allen 11-23): Mark onboarded keeps only id, status, plan, the request date
+// (created_at / privacy_agreed_at), First L, the address and the email; the other dates are erased and cohort is reset.
 import { friendlyFromDirect, friendlyLink, GO_DEMO_HOSTS, GO_LABEL_RE, GO_PAGES, GO_RESERVED } from "../_lib/golink.js";
 import { inviteBody, linkMatchesSlug, needsIphoneNoMacNote, MailError, reminderDue, reminderExpiryDate, sendingOff, sendTemplate, TEMPLATES } from "../_lib/mail.js";
 import { addressProblem, addressTaken, newCode, takenAddresses } from "../_lib/addresscode.js";
@@ -63,6 +65,7 @@ const SENT_FLASH = { ok: "Invite email sent.", reminder: "Reminder sent.", notdu
   code_taken: "Not approved: that address code is already used by another request or server. Type another, or reload the page for a new one.",
   code_locked: "Not approved: this request already has a server build under its earlier address code, so Approve and build can only use that code.",
   only_building: "Not approved: this request's server build was started earlier and would continue once approved. Press Approve and build to continue it, or leave it at Not now.",
+  onboard_failed: "Not marked onboarded: bervo.ai could not save it, so nothing changed. Try again.",
   retry_noslug: "Not retried: this request has no address code, so the Mini would never pick the build up. Press Not now, then Approve and build with a code." };
 
 const TRANSITIONS = {
@@ -203,7 +206,7 @@ const OPEN_ANSWERS_TABS = new Set(["needs", "new"]);
 const STAGE_WORDS = { new: "new", approved: "approved", built: "built", invited: "invited", signed_up: "signed up",
   not_now: "not now", expired: "expired", onboarded: "onboarded" };
 // Allen 11-23 added "keep email too" after the spec's wording; the tooltip names it.
-const ONBOARD_TIP = "This customer is in use. Erases their form details on bervo.ai; keeps first name, last initial, their Bervo address and their email address.";
+const ONBOARD_TIP = "This customer is in use. Erases their form details and dates on bervo.ai; keeps their first name and last initial, Bervo address, email address, plan and request date.";
 
 // approved: not built yet (no build, queued, waiting, building, failed, stopped); built: approved and the build is
 // ready (the invite is not sent: sending marks it invited); signed up: invited and the owner set a password (0009);
@@ -304,15 +307,14 @@ function renderRow(r, mails = [], mailOff = null, flash = "", nowMs = Date.now()
   if (TRANSITIONS.expired.from.includes(r.status)) actions.push(btnT("expired", "Mark expired",
     "The invitation ran out unused. The request is deleted 90 days later."));
   if (r.status === "claimed") {
-    // CR-ONBOARDEDTAB.1: "<First L> · <address>.bervo.ai · onboarded <date> · signed up <date>" (the name and address
-    // only when 0010 kept them; a request onboarded before it shows "(trimmed)").
+    // CR-ONBOARDEDTAB.1 fix round 2: "<First L> · <address>.bervo.ai · requested <date>" (the name and address only when
+    // 0010 kept them; a request onboarded before it shows "(trimmed)"). No other date is shown, even on a row onboarded
+    // before fix round 2 that still holds them.
     return `<article class="req" id="r${e(r.id)}"><h2>#${e(r.id)} · ${r.kept_name ? e(r.kept_name) : "(trimmed)"} <span class="status s-onboarded">onboarded</span></h2>
 <p class="sum">${onboardedLine(r)}</p>
-<p>In use. The form details were erased on bervo.ai; ${r.kept_name || r.kept_host || r.kept_email ? "kept: first name, last initial, their Bervo address, their email address, the plan and the dates" : "kept: the plan and the dates"}.</p>
+<p>In use. The form details and dates were erased on bervo.ai; ${r.kept_name || r.kept_host || r.kept_email ? "kept: their first name and last initial, Bervo address, email address, plan and request date" : "kept: the plan and the request date"}.</p>
 ${r.kept_email ? `<details class="answers"><summary>Email address</summary><p>${em(r.kept_email)}</p></details>` : ""}
-<dl><dt>Received</dt><dd>${fmt(r.created_at)}</dd><dt>Cohort</dt><dd>${e(r.cohort)}</dd><dt>Plan</dt><dd>${e(PLAN_NAMES[r.plan] || r.plan)}</dd>
-${r.approved_at ? `<dt>Approved</dt><dd>${fmt(r.approved_at)}</dd>` : ""}${r.invited_at ? `<dt>Invited</dt><dd>${fmt(r.invited_at)}</dd>` : ""}
-${r.signed_up_at ? `<dt>Signed up</dt><dd>${fmt(r.signed_up_at)}</dd>` : ""}<dt>Onboarded</dt><dd>${fmt(r.status_changed_at)}</dd></dl></article>`;
+<dl><dt>Requested</dt><dd>${fmt(r.created_at)}</dd><dt>Plan</dt><dd>${e(PLAN_NAMES[r.plan] || r.plan)}</dd></dl></article>`;
   }
   // CR-AUTOSLUG.1: the box comes pre-filled (the request's own slug if it has one, else a fresh code made for this
   // page view); Allen may type over it.
@@ -397,8 +399,8 @@ ${mailOff ? `<p class="off">Sending is off (${e(mailOff)}). Copy the email below
 // CR-ONBOARDEDTAB.1: an onboarded card's summary line.
 export function onboardedLine(r) {
   const e = escapeHtml;
-  return [r.kept_name ? e(r.kept_name) : "", r.kept_host ? `${e(r.kept_host)}.bervo.ai` : "", `onboarded ${fmt(r.status_changed_at)}`,
-    r.signed_up_at ? `signed up ${fmt(r.signed_up_at)}` : ""].filter(Boolean).join(" · ");
+  return [r.kept_name ? e(r.kept_name) : "", r.kept_host ? `${e(r.kept_host)}.bervo.ai` : "", `requested ${fmt(r.created_at)}`]
+    .filter(Boolean).join(" · ");
 }
 
 // Not now / Expired / Onboarded / All: one line per request; click it to open the full card.
@@ -407,7 +409,7 @@ function renderCompact(r, prov, card) {
   const stage = stageOf(r, prov);
   const name = r.status === "claimed" ? (r.kept_name ? e(r.kept_name) : "(trimmed)") : `${e(r.first_name)} ${e(r.last_name)}`;
   return `<details class="row"><summary>#${e(r.id)} · ${name} · <span class="status s-${e(stage)}">${e(STAGE_WORDS[stage] || r.status)}</span> · ` +
-    `${e(PLAN_NAMES[r.plan] || r.plan)} · ${fmt(r.status_changed_at || r.created_at)}</summary>${card}</details>`;
+    `${e(PLAN_NAMES[r.plan] || r.plan)} · ${r.status === "claimed" ? fmt(r.created_at) : fmt(r.status_changed_at || r.created_at)}</summary>${card}</details>`;
 }
 
 // CR-LINKPREVIEW.1: the Copy box turns the pasted owner link into the same bervo.ai/go link the Send button's email
@@ -623,6 +625,41 @@ async function sendInvite(context, env, id, form, nowMs) {
   return back("ok");
 }
 
+// CR-ONBOARDEDTAB.1 (fix round 2, Allen 11-23 + verifier-opus): Mark onboarded in ONE D1 batch (D1 runs a batch as a
+// transaction: a failed statement rolls the whole batch back). The deletes only act once the request IS onboarded
+// (EXISTS ... status = 'claimed'), so they can never take an open request's records. Nothing needs those records for an
+// onboarded request: reminders and the sign-up check are for invited requests only, Send/Retry refuse a claimed one,
+// pruneOld only clears what is gone already, and the Mini's daily build cap also counts its own records.
+const ONBOARD_DELETES = {
+  invite_mail: "DELETE FROM invite_mail WHERE request_id = ? AND EXISTS (SELECT 1 FROM invite_requests WHERE id = ? AND status = 'claimed')",
+  invite_provision: "DELETE FROM invite_provision WHERE request_id = ? AND EXISTS (SELECT 1 FROM invite_requests WHERE id = ? AND status = 'claimed')",
+  invite_links: "DELETE FROM invite_links WHERE request_id = ? AND EXISTS (SELECT 1 FROM invite_requests WHERE id = ? AND status = 'claimed')",
+};
+export async function onboardBatch(db, id, row, sets, args, where, tail) {
+  const k = keptLabel(row);
+  const forms = [   // newest schema first: 0010 + 0009, then 0009 only, then neither
+    [`, ${ONBOARD_ERASE_SIGNED_UP}, kept_name = ?, kept_host = ?, kept_email = ?`, [k.kept_name, k.kept_host, k.kept_email]],
+    [`, ${ONBOARD_ERASE_SIGNED_UP}`, []],
+    ["", []],
+  ];
+  let f = 0;
+  const tables = Object.keys(ONBOARD_DELETES);
+  for (;;) {
+    const [extra, more] = forms[f];
+    const stmts = [db.prepare(`UPDATE invite_requests SET ${sets.join(", ")}${extra} ${where}`).bind(...args, ...more, ...tail),
+      ...tables.map((t) => db.prepare(ONBOARD_DELETES[t]).bind(id, id))];
+    try {
+      return await db.batch(stmts);
+    } catch (e) {
+      const msg = String(e && e.message || e);
+      const gone = msg.match(/no such table: (\w+)/i);
+      if (/no such column/i.test(msg) && f < forms.length - 1) f += 1;
+      else if (gone && tables.includes(gone[1])) tables.splice(tables.indexOf(gone[1]), 1);
+      else throw e;
+    }
+  }
+}
+
 export async function onRequestPost(context) {
   const { request, env } = context;
   const auth = await checkAccess(request, env, context.fetchImpl || fetch, context.nowMs ?? Date.now());
@@ -696,8 +733,9 @@ export async function onRequestPost(context) {
     if (await addressTaken(env.DB, s, id)) return redirect(`/admin/invites?sent=code_taken&r=${id}#r${id}`);
     slug = s;
   }
-  const sets = t.trim ? ["status = ?", "status_changed_at = ?", TRIM_SET] : ["status = ?", "status_changed_at = ?", "note = ?"];
-  const args = t.trim ? [t.to, nowIso] : [t.to, nowIso, note || null];
+  // CR-ONBOARDEDTAB.1 fix round 2: the onboarded trim stamps no date (status_changed_at is erased with the others).
+  const sets = t.trim ? ["status = ?", TRIM_SET, ONBOARD_ERASE_SET] : ["status = ?", "status_changed_at = ?", "note = ?"];
+  const args = t.trim ? [t.to] : [t.to, nowIso, note || null];
   if (t.stamp) { sets.push(`${t.stamp} = ?`); args.push(nowIso); }
   // Approve only clears any earlier slug when there is no build record, so nothing is built (the old COALESCE kept it,
   // and a not-now request with a slug was then built anyway); with a finished/failed build record it keeps the slug.
@@ -706,19 +744,18 @@ export async function onRequestPost(context) {
   const guard = (slug ? " AND NOT EXISTS (SELECT 1 FROM invite_requests o WHERE o.slug = ? AND o.id <> ?)" : "") +
     (slug && lockedSlug ? " AND slug = ?" : "");
   const tail = [id, row.status, ...(slug ? [slug, id] : []), ...(slug && lockedSlug ? [lockedSlug] : [])];
-  let res;
   if (t.trim) {
-    // CR-ONBOARDEDTAB.1: keep First L, the address and the email in the same UPDATE (0010). Before 0010 the columns are missing
-    // and D1 refuses the statement (nothing changes); the trim then runs exactly as before.
-    const k = keptLabel(row);
+    // CR-ONBOARDEDTAB.1: one D1 batch (a transaction) = the trim + date erase + kept fields, and the request's email
+    // records, build record and any waiting link deleted. Only "no such column / table" (a migration not run yet) moves
+    // to the next, smaller form; any other error fails the action visibly with nothing changed.
     try {
-      res = await env.DB.prepare(`UPDATE invite_requests SET ${sets.join(", ")}, kept_name = ?, kept_host = ?, kept_email = ? WHERE id = ? AND status = ?${guard}`)
-        .bind(...args, k.kept_name, k.kept_host, k.kept_email, ...tail).run();
+      await onboardBatch(env.DB, id, row, sets, args, `WHERE id = ? AND status = ?${guard}`, tail);
     } catch {
-      res = null;
+      return redirect(`/admin/invites?sent=onboard_failed&r=${id}#r${id}`);
     }
+    return redirect(`/admin/invites#r${id}`);
   }
-  if (!res) res = await env.DB.prepare(`UPDATE invite_requests SET ${sets.join(", ")} WHERE id = ? AND status = ?${guard}`)
+  const res = await env.DB.prepare(`UPDATE invite_requests SET ${sets.join(", ")} WHERE id = ? AND status = ?${guard}`)
     .bind(...args, ...tail).run();
   if (slug && res?.meta && res.meta.changes === 0) {
     const now = await env.DB.prepare("SELECT status FROM invite_requests WHERE id = ?").bind(id).first();
@@ -727,11 +764,6 @@ export async function onRequestPost(context) {
   if (t.to !== "approved" && t.to !== "invited") {
     // CR-AUTOPROVISION.1: a delivered link never outlives an open request.
     for (const k of ["invite", "reminder3", "reminder10"]) await deleteLink(env.DB, id, k);
-  }
-  if (t.trim) {
-    // The trimmed request keeps no address; its emails keep no address hash either (template, status, dates stay).
-    try { await env.DB.prepare("UPDATE invite_mail SET address_hash = NULL WHERE request_id = ?").bind(id).run(); }
-    catch { /* no invite_mail table yet */ }
   }
   return redirect(`/admin/invites#r${id}`);
 }

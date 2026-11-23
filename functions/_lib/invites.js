@@ -17,13 +17,21 @@ export const TRIM_SET = TRIMMED_COLUMNS.map((c) => `${c} = NULL`).join(", ");
 // kept_name = first name + last initial ("Ashley C"); kept_host = the address code ("reh1120" -> reh1120.bervo.ai);
 // kept_email = their email address (Allen 11-23, "yes, keep email too").
 export const KEPT_COLUMNS = ["kept_name", "kept_host", "kept_email"];
+// CR-ONBOARDEDTAB.1 fix round 2 (Allen 11-23, "yes"): an onboarded row keeps ONLY id, status, plan, created_at (the
+// request date), privacy_agreed_at (the same moment; NOT NULL) and the three kept fields. In the same UPDATE as the trim
+// the other dates are erased and cohort is reset to 'public' (NOT NULL; it must no longer say whether a personal link
+// was used). signed_up_at (0009) goes in its own piece so the UPDATE still works on a database without 0009.
+export const ONBOARD_ERASE_SET = "approved_at = NULL, invited_at = NULL, status_changed_at = NULL, cohort = 'public'";
+export const ONBOARD_ERASE_SIGNED_UP = "signed_up_at = NULL";
 export const KEPT_NAME_MAX = 40;               // 0010's CHECK
 export const KEPT_HOST_MAX = 63;               // 0010's CHECK (a slug is at most 31)
 export const KEPT_EMAIL_MAX = 254;             // 0010's CHECK (the form's own limit)
 
 // -> { kept_name, kept_host, kept_email } from a full (not yet trimmed) request row; any may be null.
 export function keptLabel(row) {
-  const first = stripFormatChars(String(row?.first_name ?? "")).replace(/\s+/g, " ").trim();
+  // fix round 2 (verifier-opus): the FIRST WORD of the first name only, so a full name typed as a first name
+  // ("Ashley Clary") never keeps the last name
+  const first = stripFormatChars(String(row?.first_name ?? "")).trim().split(/\s+/)[0] || "";
   const initial = [...stripFormatChars(String(row?.last_name ?? "")).trim()][0] || "";
   let name = null;
   if (first) {

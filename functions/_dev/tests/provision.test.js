@@ -39,6 +39,12 @@ function makeD1() {
   const norm = (a) => a.map((v) => (v === undefined ? null : v));
   return {
     raw: sql,
+    // D1 runs a batch as one transaction: any failed statement rolls the whole batch back (CR-ONBOARDEDTAB.1)
+    async batch(stmts) {
+      sql.exec("BEGIN");
+      try { const out = []; for (const s of stmts) out.push(await s.run()); sql.exec("COMMIT"); return out; }
+      catch (e) { sql.exec("ROLLBACK"); throw e; }
+    },
     prepare(q) {
       let args = [];
       const st = {
