@@ -25,6 +25,9 @@ export const KEPT_COLUMNS = ["kept_name", "kept_host", "kept_email"];
 // was used). signed_up_at (0009) goes in its own piece so the UPDATE still works on a database without 0009.
 export const ONBOARD_ERASE_SET = "approved_at = NULL, invited_at = NULL, status_changed_at = NULL, cohort = 'public'";
 export const ONBOARD_ERASE_SIGNED_UP = "signed_up_at = NULL";
+// CR-INVITEREADY.1 (migration 0013): the "ready in 2–3 days" answer is dropped with the other trimmed invite fields. It is
+// NOT in TRIMMED_COLUMNS because TRIM_SET must keep working on a database without the column; onboardBatch tries it first.
+export const ONBOARD_ERASE_READY = "ready_soon = NULL";
 export const KEPT_NAME_MAX = 40;               // 0010's CHECK
 export const KEPT_HOST_MAX = 63;               // 0010's CHECK (a slug is at most 31)
 export const KEPT_EMAIL_MAX = 254;             // 0010's CHECK (the form's own limit)
@@ -147,6 +150,7 @@ export function validateInvite(form) {
   v.timezone = validTimeZone(tz) ? tz : null;            // never a reason to refuse; provisioning asks later
   const ref = clean(get("referral")).toLowerCase();
   v.referral = REFERRALS.includes(ref) ? ref : null;     // allowlisted; display only
+  v.ready_soon = get("ready_soon") === "yes" ? 1 : 0;    // optional checkbox (CR-INVITEREADY.1); never a reason to refuse
   return errors.length ? { ok: false, errors } : { ok: true, value: v };
 }
 
@@ -227,12 +231,21 @@ export async function verifyTurnstile(token, secret, ip, fetchImpl = fetch, host
 export function cohortFor(referral) { return referral === "allen" ? "private" : "public"; }
 
 export async function insertInvite(db, v, nowIso) {
-  return db.prepare(
-    "INSERT INTO invite_requests (created_at, first_name, last_name, email, has_assistant, " +
-    "email_providers, other_email, computers, phone, plan, heard_from, heard_detail, timezone, about, referral, cohort, privacy_agreed_at, status, status_changed_at) " +
-    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', ?)"
-  ).bind(nowIso, v.first_name, v.last_name, v.email, v.has_assistant, v.email_providers,
-    v.other_email ?? null, v.computers ?? null, v.phone, v.plan, v.heard_from ?? null, v.heard_detail ?? null, v.timezone, v.about, v.referral, cohortFor(v.referral), nowIso, nowIso).run();
+  const cols = "created_at, first_name, last_name, email, has_assistant, " +
+    "email_providers, other_email, computers, phone, plan, heard_from, heard_detail, timezone, about, referral, cohort, privacy_agreed_at, status, status_changed_at";
+  const args = [nowIso, v.first_name, v.last_name, v.email, v.has_assistant, v.email_providers,
+    v.other_email ?? null, v.computers ?? null, v.phone, v.plan, v.heard_from ?? null, v.heard_detail ?? null, v.timezone, v.about, v.referral, cohortFor(v.referral), nowIso];
+  const q = (c, extra) => `INSERT INTO invite_requests (${c}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', ?${extra})`;
+  // CR-INVITEREADY.1: the answer is written only when it is "yes" (the column defaults to 0), and a database without
+  // migration 0013 stores the request without it rather than refusing the request.
+  if (v.ready_soon === 1) {
+    try {
+      return await db.prepare(q(cols + ", ready_soon", ", 1")).bind(...args, nowIso).run();
+    } catch (e) {
+      if (!/no such column|has no column/i.test(String(e && e.message || e))) throw e;
+    }
+  }
+  return db.prepare(q(cols, "")).bind(...args, nowIso).run();
 }
 
 // ---------- Cloudflare Access JWT (defence in depth behind the Access application) ----------

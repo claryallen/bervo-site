@@ -40,6 +40,7 @@ files that export `onRequest…`. So everything that is not part of the site liv
   Every email record (`invite_mail`, request and server emails) is deleted 90 days after it was sent (`pruneOld`). `/api/provision-state` action `signed_up` takes an optional
   `signed_up_at` (the real time the owner set their password; only ever moves the stored date earlier). Tests:
   `functions/_dev/tests/admintabs.test.js` (O1-O6).
+- **"Ready in 2–3 days" checkbox (CR-INVITEREADY.1, Allen 11-24):** `functions/_dev/migrations/0013_ready_soon.sql` (one line, no comments; adds `invite_requests.ready_soon`, 0/1, default 0; 0012 is the unapplied newsletter). The handler stores the answer only when ticked and falls back to a plain insert when the column is missing; the admin page flags and sorts flagged requests first in every tab; Mark onboarded erases it (its own step-down piece, not in `TRIMMED_COLUMNS`). Tests: `functions/_dev/tests/ready.test.js`.
 - `functions/_dev/tests/invite.test.js` — tests: `node --experimental-default-type=module --test functions/_dev/tests/invite.test.js`
   (Node 22+, no packages; D1 is mocked over `node:sqlite` with the real schema). It exports nothing, so it is never a route.
 
