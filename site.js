@@ -1,4 +1,4 @@
-const PAGES=["home","why","assistants","privacy-security","pricing"];
+const PAGES=["home","why","assistants","privacy-security","compare","pricing"];
 let pendingAnchor=null;
 function show(){
   const id=(location.hash||"#home").slice(1);

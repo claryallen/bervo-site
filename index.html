@@ -164,6 +164,14 @@ tbody th{font-weight:600;min-width:210px;position:sticky;left:0;background:var(-
 td{min-width:160px;color:var(--muted)}
 td.bervo,th.bervo{background:var(--accent-soft);color:var(--fg)}
 td.bervo{font-weight:500}
+#p-compare thead th small{display:block;font:400 12px var(--body);color:var(--ink2);white-space:normal}
+#p-compare td.nd{color:var(--ink2)}
+#p-compare sup.r{font:600 10px var(--mono);color:var(--accent);margin-left:2px}
+#p-compare table.short td{min-width:200px}
+#p-compare tbody th{white-space:normal;max-width:240px}
+#p-compare .src{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(min(100%,250px),1fr));font-size:14px}
+#p-compare .src div{display:grid;gap:4px;min-width:0}
+#p-compare .src a{overflow-wrap:anywhere}
 tr.sect th{font:500 12px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--accent);background:var(--band)}
 
 .plans{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:20px}
@@ -242,6 +250,7 @@ form.inv input,form.inv select{font:16px var(--body);padding:10px 12px;border:1p
     <a href="#home">Home</a>
     <a href="#why">Why Bervo</a>
     <a href="#privacy-security">Privacy &amp; Security</a>
+    <a href="#compare">Compare</a>
     <a href="#pricing">Pricing</a>
     <a class="btn p" href="/invite">Request an Invite</a>
   </nav>
@@ -419,6 +428,7 @@ form.inv input,form.inv select{font:16px var(--body);padding:10px 12px;border:1p
       <h2>Built for the person everyone is waiting on.</h2>
       <p class="lead muted">Most AI tools are built for teams. Bervo is built for the person at the top.</p>
     </div>
+    <div><a class="btn s" href="#compare">See how Bervo compares</a></div>
   </div></section>
 
   <section class="b"><div class="in split">
@@ -693,6 +703,167 @@ form.inv input,form.inv select{font:16px var(--body);padding:10px 12px;border:1p
 </div>
 
 
+<div class="page" id="p-compare" hidden>
+  <section class="hero"><div class="in"><div class="hero-copy">
+  <div class="eyebrow">Compare</div>
+  <h1>Built for executives, not for everyone.</h1>
+  <p class="sub">The big AI companies now offer agents that work for you: Claude Duet from Anthropic, Dots from OpenAI, Grok Bot from xAI and Muse from Meta. Here is how Bervo compares, from each company's own pages and from published reviews.</p>
+</div></div></section>
+
+  <section class="b alt"><div class="in">
+  <div class="head"><h2>The main differences</h2><p class="muted">The short version. The full table is below.</p></div>
+  <div class="frame">
+    <table class="short">
+      <thead><tr><th></th><th class="bervo">Bervo</th><th>The others<small>Claude Duet, Dots, Grok Bot, Muse</small></th></tr></thead>
+      <tbody>
+        <tr><th>Who it's for</th>
+          <td class="bervo">Business owners and executives. Built around your inbox, commitments, contacts and calendar</td>
+          <td>Anyone, for everyday personal and work help, from shopping and trips to research and documents</td></tr>
+        <tr><th>Keeps track of what you owe and what you're owed</th>
+          <td class="bervo">Finds the promises in your email and texts, both ways, and keeps each one open until it's done</td>
+          <td>Reminders and follow-ups, mostly ones you set up or ask for</td></tr>
+        <tr><th>Everything on one screen, already set up</th>
+          <td class="bervo">One dashboard with your brief, tasks, email, texts, contacts and notes, ready on day one</td>
+          <td>A list of the agent's own work, or a view you describe and it builds</td></tr>
+        <tr><th>All your email and texts, summarized</th>
+          <td class="bervo">Every email and every text conversation has its own short summary, and Bervo starts with your last 30 days</td>
+          <td>Inbox highlights and daily briefings. They learn about you from the day you start</td></tr>
+        <tr><th>Your private details stay private</th>
+          <td class="bervo">Your own private server or walled-off account. Last names, email addresses and phone numbers are kept from the AI, and photos in your texts never reach it</td>
+          <td>Each agent works on its own cloud computer. None says it keeps people's names or the photos in your texts from the AI</td></tr>
+        <tr><th>Works with your assistant</th>
+          <td class="bervo">Your assistant gets their own login, and you can see who did what</td>
+          <td>Built for one person. Grok Bot can share a bot with a team</td></tr>
+        <tr><th>Price</th>
+          <td class="bervo">$99 a month (Dedicated) or $49 (Standard), plus your own AI usage. Free until January 5, 2027</td>
+          <td>Each comes with a monthly plan, from $20 to $200 depending on the plan, and some sell extra usage on top. Muse currently has a free version</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div></section>
+
+  <section class="b"><div class="in">
+  <div class="head"><h2>Side by side, in detail</h2><p class="muted">Scroll sideways on a phone.</p></div>
+  <div class="frame">
+    <table>
+      <thead><tr>
+        <th></th>
+        <th class="bervo">Bervo</th>
+        <th>Claude Duet<small>Anthropic</small></th>
+        <th>Dots<small>OpenAI</small></th>
+        <th>Grok Bot<small>xAI</small></th>
+        <th>Muse<small>Meta</small></th>
+      </tr></thead>
+      <tbody>
+        <tr><th>Promises in both directions, tracked until done</th>
+          <td class="bervo">What you promised and what others owe you, from email and texts, kept open until it's done, with the source behind each one</td>
+          <td>Follows up on threads that have gone quiet. Reviewers say it reminds you about commitments<sup class="r">R</sup></td>
+          <td>Reminders and recurring tasks. Reviewers say it finds emails where you said you'd do something<sup class="r">R</sup></td>
+          <td>Notices work it can take off your plate and offers to handle it</td>
+          <td>Follows up with people so plans and deadlines don't slip. Goals it creates from your chats, with reminders<sup class="r">R</sup></td></tr>
+        <tr><th>Everything you're tracking in one view</th>
+          <td class="bervo">A dashboard with tabs for today's brief and calendar, tasks, email, texts, contacts, notes and initiatives, ready when setup finishes</td>
+          <td>A Tasks tab of what Duet is working on, and a Home Screen widget of open tasks. Builds a dashboard when you ask</td>
+          <td>An Activity view of its own tasks: In progress, Scheduled, Completed</td>
+          <td>A sidebar of bots, each in its own chat, and a list of Routines</td>
+          <td>Spaces you describe and pin as tabs, beside Chat, Search, Feed, Ideas, Goals and Library<sup class="r">R</sup></td></tr>
+        <tr><th>Every email and text, summarized</th>
+          <td class="bervo">An Email tab and a Texts tab on the desktop, each message and conversation summarized</td>
+          <td>Flags inbox items that need attention, drafts replies for your approval, and can clear out mail you don't need to read</td>
+          <td>Reads your Gmail and can send you a daily summary of what needs doing<sup class="r">R</sup></td>
+          <td>Sorts the night's mail and drafts replies for threads that need you</td>
+          <td>A daily briefing from your inbox and calendar, and a Feed that can include email follow-ups<sup class="r">R</sup></td></tr>
+        <tr><th>Your text messages</th>
+          <td class="bervo">Reads your iPhone texts (through the Bervo Mac app) or your Android texts, if you choose</td>
+          <td class="nd">Not described</td>
+          <td>OpenAI says your dot doesn't see your other text conversations</td>
+          <td>On a Mac, reads and sends your Messages once you allow it<sup class="r">R</sup></td>
+          <td>On a Mac, can read your Messages once you allow it<sup class="r">R</sup></td></tr>
+        <tr><th>Text your assistant</th>
+          <td class="bervo">Text Bervo at its own number by iMessage from an iPhone. Works from Android phones too. Ask what you'd ask in Chat</td>
+          <td>Message it in the Duet app by typing or recording a voice message. Texting it by SMS or iMessage isn't described</td>
+          <td>Text your dot by iMessage or RCS, not SMS (beta, some Pro users in the US, Canada and Mexico)</td>
+          <td>Chat in the Grok Bot or X apps, or tag @bot on X. Texting it by SMS or iMessage isn't described<sup class="r">R</sup></td>
+          <td>Chat in the Muse app or in WhatsApp. Texting it by SMS isn't described</td></tr>
+        <tr><th>Voice chat</th>
+          <td class="bervo">Talk with Bervo out loud in Chat on your phone, in a natural voice or your phone's own voice. The conversation stays in Chat as text. Off until you turn it on</td>
+          <td>Hold to talk or have a spoken conversation in the Duet app</td>
+          <td>Call your dot from its conversation in the ChatGPT app. It can't call you</td>
+          <td>Live voice chat with one bot at a time in the desktop and phone apps</td>
+          <td>Voice mode: talk to it in real time, audio only or with an animated avatar</td></tr>
+        <tr><th>Your contacts kept private</th>
+          <td class="bervo">Before your email, texts and contacts reach the AI, last names are truncated to an initial and email addresses and phone numbers are removed</td>
+          <td class="nd">Not described</td>
+          <td class="nd">Not described</td>
+          <td class="nd">Not described</td>
+          <td class="nd">Not described</td></tr>
+        <tr><th>Your attachments</th>
+          <td class="bervo">Email attachments reach the AI only when you ask about one. Photos in your texts are never saved and never reach the AI</td>
+          <td class="nd">Not described</td>
+          <td>You can attach files and photos in its conversation. Email attachments aren't described</td>
+          <td>Reads the attachments on incoming email, up to 10 files of 10 MB each</td>
+          <td>You can upload documents for it to work on<sup class="r">R</sup></td></tr>
+        <tr><th>Learns from the mail you send</th>
+          <td class="bervo">Mail you send is kept in full in your Bervo, so it can learn how you work and notice what you've promised</td>
+          <td class="nd">Not described</td>
+          <td class="nd">Not described</td>
+          <td class="nd">Not described</td>
+          <td class="nd">Not described</td></tr>
+        <tr><th>Support for assistants</th>
+          <td class="bervo">Your assistant gets their own login to your Bervo. Actions show who did them, and you choose whether they see your text summaries and your Daily Capture</td>
+          <td>One person's agent. Not on Team or Enterprise plans yet</td>
+          <td>One personal dot per person. Sharing it isn't described</td>
+          <td>Team Bots that each teammate chats with privately (Team and Enterprise plans)</td>
+          <td>Not described. Meta says it is exploring ways to share Spaces with others</td></tr>
+        <tr><th>Knows your history on day one</th>
+          <td class="bervo">During setup, reads your last 30 days of email, calendar and, if you connect them, texts</td>
+          <td>Carries over your Claude memory and can search your past Claude chats</td>
+          <td>Starts with your ChatGPT memory and builds its own</td>
+          <td>Can import memory from another assistant. Otherwise learns your preferences as you use it<sup class="r">R</sup></td>
+          <td>Learns what matters to you from your chats. Reviewers say it doesn't download your whole inbox unless you ask<sup class="r">R</sup></td></tr>
+        <tr><th>Email accounts</th>
+          <td class="bervo">Several Google accounts, Microsoft 365, Outlook.com, hosted Exchange on request, and other email such as iCloud, Yahoo, AOL or your own domain</td>
+          <td>Gmail. Reviewers say Microsoft 365 isn't available yet<sup class="r">R</sup></td>
+          <td>A personal email account. Reviewers name Gmail and Outlook<sup class="r">R</sup></td>
+          <td>Gmail, one mailbox at a time. On a Mac, Apple Mail too<sup class="r">R</sup></td>
+          <td>Gmail and Outlook<sup class="r">R</sup></td></tr>
+        <tr><th>What it does with your email</th>
+          <td class="bervo">Reads only. It never sends, moves or deletes anything</td>
+          <td>Drafts replies and sends with your approval. Can clear out mail you don't need</td>
+          <td>Drafts replies and sends after you approve<sup class="r">R</sup></td>
+          <td>Searches, reads, drafts, sends and labels. Mail from routines waits as a draft until you press Send</td>
+          <td>You choose: read only, or also send</td></tr>
+        <tr><th>Where your data lives</th>
+          <td class="bervo">Your own private server, or your own walled-off account on a shared server</td>
+          <td>Works on its own computer in the cloud. Where your data is stored isn't described</td>
+          <td>Has its own computer in the cloud. Where your data is stored isn't described</td>
+          <td>A dedicated cloud computer for each user, shared by all your bots. Account data follows Cursor's storage rules</td>
+          <td>Its own dedicated computer in the cloud, which holds the agent and your data</td></tr>
+        <tr><th>Price</th>
+          <td class="bervo">$99 a month (Dedicated) or $49 (Standard), plus your own AI usage. Free until January 5, 2027</td>
+          <td>Included with Claude Pro ($20 a month), Max ($100) or Ultra ($200) during the research preview. Extra usage credits from $20</td>
+          <td>Included with ChatGPT Pro ($100, $200 or $500 a month). Rolling out to some Plus users ($20)</td>
+          <td>Included with X Premium ($30 a month), Super ($100) or Ultra ($200). Extra usage credits available</td>
+          <td>Free with a usage limit. Paid plans of $20 and $100 a month reported<sup class="r">R</sup></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="notes" style="margin-top:14px">
+    <p class="fine">Checked on November 24, 2026, on each company's own pages, and in published reviews where marked <sup class="r">R</sup>. "Not described" means we didn't find it, not that it doesn't exist. These products change quickly. Tell us if something has changed.</p>
+  </div>
+</div></section>
+
+  <section class="b alt"><div class="in">
+  <div class="head"><h2>Sources</h2></div>
+  <div class="src">
+    <div><h3>Claude Duet</h3><a href="https://support.claude.com/en/articles/17631495-get-started-with-claude-duet">Get started (Claude Help)</a><a href="https://claude.com/product/claude-duet">Product page</a><a href="https://apps.apple.com/us/app/id6803276000">App Store listing</a><a href="https://claude.com/pricing">Claude pricing</a><a href="https://forwardfuture.com/newsletter/originals/claude-duet-wants-to-be-your-ai-chief-of-staff-i-put-it-to-the-test">Review: Forward Future, Nov 19</a><a href="https://www.eesel.ai/blog/claude-duet-review">Review: eesel</a><a href="https://www.chatprd.ai/how-i-ai/claude-duet-review">Review: ChatPRD, Oct 26</a></div>
+    <div><h3>Dots</h3><a href="https://help.openai.com/en/articles/20001530">OpenAI Help</a><a href="https://openai.com/index/introducing-dots/">Introducing dots</a><a href="https://developers.openai.com/training/walkthroughs/personalize-your-dot">Personalize your dot</a><a href="https://help.openai.com/en/articles/6950777-what-is-chatgpt-plus">ChatGPT Plus</a><a href="https://help.openai.com/en/articles/9793128-about-chatgpt-pro-tiers">ChatGPT Pro tiers</a><a href="https://www.beyondthebuzz.ai/p/openai-dots">Review: Beyond the Buzz</a><a href="https://www.xda-developers.com/gave-chatgpt-dots-access-to-email-calendar-tasks-started-helping-without-being-asked/">Review: XDA</a><a href="https://zapier.com/blog/chatgpt-dots/">Review: Zapier</a></div>
+    <div><h3>Grok Bot</h3><a href="https://docs.x.ai/grok-bot/get-started">Get started</a><a href="https://docs.x.ai/grok-bot/computer-and-apps">Computer and apps</a><a href="https://docs.x.ai/grok-bot/approvals-security-and-privacy">Approvals, security and privacy</a><a href="https://docs.x.ai/x-subscription/pricing">X Subscription pricing</a><a href="https://agentstacklist.com/trending/grok/">Review: Agent Stack List, Nov 12</a><a href="https://docs.x.ai/grok-bot/chat-and-collaboration">Chat and collaboration</a><a href="https://docs.x.ai/grok-bot/use-cases">Use cases</a><a href="https://www.flaviocopes.com/grok-bot/">Review: Flavio Copes, Nov 19</a><a href="https://docs.x.ai/grok-bot/initiative">When your bot takes initiative</a><a href="https://docs.x.ai/grok-bot/team-bots">Team Bots</a><a href="https://docs.x.ai/grok-bot/how-grok-bot-works">How Grok Bot works</a></div>
+    <div><h3>Muse</h3><a href="https://about.fb.com/news/2026/09/introducing-muse">Introducing Muse</a><a href="https://about.fb.com/news/2026/11/introducing-spaces-customize-muse-app/">Introducing Spaces</a><a href="https://apps.apple.com/app/6760173601">App Store listing</a><a href="https://metamuseai.site/muse/goals-feed-ideas/">Review: MetaMuseAI, tested Oct 5</a><a href="https://moderncreator.app/2026-10-20-paul-j-lipsky-meta-muse-7-use-cases-that-automate-your-life">Review: Modern Creator, Oct 20</a><a href="https://metamuseai.site/muse/email-calendar/">Review: MetaMuseAI, email and calendar</a><a href="https://www.unite.ai/meta-launches-muse-mac-app-with-file-messages-and-calendar-access">Review: Unite.AI, Mac app</a><a href="https://techcrunch.com/2026/09/08/meta-debuts-its-muse-ai-agent-will-consumers-trust-it/">Review: TechCrunch, Sep 8</a></div>
+  </div>
+</div></section>
+</div>
+
 <div class="page" id="p-pricing" hidden>
   <section class="hero"><div class="in"><div class="hero-copy">
     <div class="eyebrow">Pricing</div>
@@ -745,9 +916,9 @@ form.inv input,form.inv select{font:16px var(--body);padding:10px 12px;border:1p
 
 <footer class="foot"><div class="in">
   <a class="wm" href="#home">ber<span class="v">v</span>o</a>
-  <a href="#pricing">Pricing</a><a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a><a href="/terms" target="_blank" rel="noopener">Terms</a><a href="/invite">Request an Invite</a><button type="button" id="theme-btn" class="theme-btn">Dark mode</button><span>© BERVO LLC</span>
+  <a href="#compare">Compare</a><a href="#pricing">Pricing</a><a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a><a href="/terms" target="_blank" rel="noopener">Terms</a><a href="/invite">Request an Invite</a><button type="button" id="theme-btn" class="theme-btn">Dark mode</button><span>© BERVO LLC</span>
 </div></footer>
 
-<script src="/site.js?v=c229214c" defer></script>
+<script src="/site.js?v=1a8f181c" defer></script>
 </body>
 </html>
