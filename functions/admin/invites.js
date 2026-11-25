@@ -33,7 +33,7 @@
 // its reminder line reads "Reminders stopped (signed up)", and Mark onboarded keeps first name + last initial and the
 // address (kept_name / kept_host, migration 0010; before it the trim runs exactly as before), and their email address
 // (kept_email, Allen 11-23 "yes, keep email too"; shown only inside the card's folded details, never the summary line).
-import { checkAccess, escapeHtml, keptLabel, ONBOARD_ERASE_SET, ONBOARD_ERASE_SIGNED_UP, pruneOld, redirect, stripFormatChars, TRIM_SET } from "../_lib/invites.js";
+import { checkAccess, escapeHtml, keptLabel, ONBOARD_ERASE_READY, ONBOARD_ERASE_SET, ONBOARD_ERASE_SIGNED_UP, pruneOld, redirect, stripFormatChars, TRIM_SET } from "../_lib/invites.js";
 // CR-ONBOARDEDTAB.1 fix round 2 (Allen 11-23): Mark onboarded keeps only id, status, plan, the request date
 // (created_at / privacy_agreed_at), First L, the address and the email; the other dates are erased and cohort is reset.
 import { friendlyFromDirect, friendlyLink, GO_DEMO_HOSTS, GO_LABEL_RE, GO_PAGES, GO_RESERVED } from "../_lib/golink.js";
@@ -206,6 +206,10 @@ export const TABS = [["new", "New"], ["not_now", "Deferred"], ["approved", "Buil
   ["server_emails", "Emails"]];
 const TAB_KEYS = TABS.map(([k]) => k);
 const TAB_ALIASES = { open: "new", needs: "new", claimed: "onboarded" };   // old links: ?show=open / needs (now New), ?show=claimed
+// CR-INVITEREADY.1: the flag Allen sees on a request that ticked "ready in 2–3 days" (migration 0013; absent before it).
+export const READY_FLAG = `<span class="badge ready-flag">Ready in 2–3 days</span>`;
+export const isReady = (r) => r.status !== "claimed" && r.ready_soon === 1;
+export const readyFirst = (rows) => [...rows.filter(isReady), ...rows.filter((r) => !isReady(r))];
 const COMPACT_TABS = new Set(["not_now", "expired", "onboarded", "all"]);
 const OPEN_ANSWERS_TABS = new Set(["new"]);
 const STAGE_WORDS = { new: "new", approved: "approved", built: "built", invited: "invited", signed_up: "signed up",
@@ -374,7 +378,8 @@ ${mailOff ? `<p class="off">Sending is off (${e(mailOff)}); the link waits here 
   const answersOpen = OPEN_ANSWERS_TABS.has(tab) ? " open" : "";
   const summary = [e(PLAN_NAMES[r.plan] || r.plan), e(r.timezone || "time zone not sent"),
     r.slug ? `${e(r.slug)}.bervo.ai` : "no address yet", `received ${fmt(r.created_at)}`,
-    r.signed_up_at ? `<b>Signed up ${fmt(r.signed_up_at)}</b>` : ""].filter(Boolean).join(" · ");
+    r.signed_up_at ? `<b>Signed up ${fmt(r.signed_up_at)}</b>` : "",
+    r.status !== "claimed" && r.ready_soon === 1 ? READY_FLAG : ""].filter(Boolean).join(" · ");
   return `<article class="req" id="r${e(r.id)}">
 <h2>#${e(r.id)} · ${e(r.first_name)} ${e(r.last_name)}${personal} <span class="status s-${e(stage)}">${e(STAGE_WORDS[stage] || r.status)}</span></h2>
 <p class="sum">${summary}</p>
@@ -396,6 +401,7 @@ ${r.computers ? `<dt>Computer(s)</dt><dd>${e(computerList(r.computers))}</dd>` :
 ${r.heard_from ? `<dt>How they heard</dt><dd>${e(HEARD_NAMES[r.heard_from] || r.heard_from)}${r.heard_detail ? `: ${e(r.heard_detail)}` : ""}</dd>` : ""}
 <dt>Phone</dt><dd>${e(r.phone)}</dd>
 <dt>Plan</dt><dd>${e(PLAN_NAMES[r.plan] || r.plan)}</dd>
+${r.status !== "claimed" && r.ready_soon === 1 ? `<dt>Ready</dt><dd>${READY_FLAG}</dd>` : ""}
 <dt>Time zone</dt><dd>${e(r.timezone || "(not sent)")}</dd>
 <dt>Cohort</dt><dd>${e(r.cohort)}</dd>
 ${r.slug ? `<dt>Slug</dt><dd>${e(r.slug)}</dd>` : ""}
@@ -441,7 +447,7 @@ function renderCompact(r, prov, card) {
   const stage = stageOf(r, prov);
   const name = r.status === "claimed" ? (r.kept_name ? e(r.kept_name) : "(trimmed)") : `${e(r.first_name)} ${e(r.last_name)}`;
   return `<details class="row"><summary>#${e(r.id)} · ${name} · <span class="status s-${e(stage)}">${e(STAGE_WORDS[stage] || r.status)}</span> · ` +
-    `${e(PLAN_NAMES[r.plan] || r.plan)} · ${r.status === "claimed" ? fmt(r.created_at) : fmt(r.status_changed_at || r.created_at)}</summary>${card}</details>`;
+    `${e(PLAN_NAMES[r.plan] || r.plan)} · ${r.status === "claimed" ? fmt(r.created_at) : fmt(r.status_changed_at || r.created_at)}${isReady(r) ? ` · ${READY_FLAG}` : ""}</summary>${card}</details>`;
 }
 
 // CR-LINKPREVIEW.1: the Copy box turns the pasted owner link into the same bervo.ai/go link the Send button's email
@@ -479,7 +485,9 @@ export async function onRequestGet(context) {
   if (flashRow && !inTab(f, flashRow, P(flashRow), M(flashRow))) f = stageOf(flashRow, P(flashRow));
   const inTabRows = (k) => all.filter((r) => inTab(k, r, P(r), M(r))).map((r) => ({ r, prov: P(r), mails: M(r) }));
   const flagged = (k) => inTabRows(k).filter((x) => needsYou(x.r, x.prov, x.mails));
-  const results = f === "server_emails" ? [] : all.filter((r) => inTab(f, r, P(r), M(r)));
+  // CR-INVITEREADY.1 (Allen 11-24): within every tab, requests that said they are ready in 2–3 days come first, newest first
+  // (the read is newest first already and this sort is stable), then the rest as before.
+  const results = f === "server_emails" ? [] : readyFirst(all.filter((r) => inTab(f, r, P(r), M(r))));
   const flashId = Number(url.searchParams.get("r"));
   const flash = Object.hasOwn(SENT_FLASH, url.searchParams.get("sent") || "") ? SENT_FLASH[url.searchParams.get("sent")] : "";
   // CR-AUTOSLUG.1: a fresh address code for each request that can be approved and has none yet; never one already in
@@ -523,7 +531,7 @@ body{max-width:900px;margin:1.5rem auto;padding:0 1rem;font:15px/1.5 -apple-syst
 .req{border:1px solid var(--line);border-radius:8px;padding:.75rem 1rem;margin:1rem 0}h2{font-size:1.1rem;margin:.2rem 0}
 dl{display:grid;grid-template-columns:10rem 1fr;gap:.1rem .75rem;margin:.5rem 0}dt{color:var(--muted)}dd{margin:0;overflow-wrap:anywhere}
 .about{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--soft);border-radius:6px;padding:.5rem .75rem}
-.badge{background:var(--amber);color:var(--amber-ink);border-radius:4px;padding:0 .4em;font-size:.8rem}
+.badge{background:var(--amber);color:var(--amber-ink);border-radius:4px;padding:0 .4em;font-size:.8rem}.ready-flag{font-weight:600;white-space:nowrap}
 .status{font-size:.8rem;border-radius:4px;padding:0 .4em;background:var(--gray)}.s-approved{background:var(--green)}.s-not_now{background:var(--red)}.s-invited{background:var(--blue)}
 textarea,input{width:100%;box-sizing:border-box;font:inherit}label{display:block;margin:.4rem 0}.buttons{margin-top:.4rem}
 .copy{margin-top:.6rem;border-top:1px dashed var(--dash);padding-top:.5rem}
@@ -701,7 +709,8 @@ const ONBOARD_DELETES = {
 };
 export async function onboardBatch(db, id, row, sets, args, where, tail) {
   const k = keptLabel(row);
-  const forms = [   // newest schema first: 0010 + 0009, then 0009 only, then neither
+  const forms = [   // newest schema first: 0013 + 0010 + 0009, then 0010 + 0009, then 0009 only, then neither
+    [`, ${ONBOARD_ERASE_READY}, ${ONBOARD_ERASE_SIGNED_UP}, kept_name = ?, kept_host = ?, kept_email = ?`, [k.kept_name, k.kept_host, k.kept_email]],
     [`, ${ONBOARD_ERASE_SIGNED_UP}, kept_name = ?, kept_host = ?, kept_email = ?`, [k.kept_name, k.kept_host, k.kept_email]],
     [`, ${ONBOARD_ERASE_SIGNED_UP}`, []],
     ["", []],

@@ -30,6 +30,7 @@ function makeD1({ signedUp = true, kept = true } = {}) {
   for (const n of BASE_MIGRATIONS) sql.exec(MIG(n));
   if (signedUp) sql.exec(MIG("0009_signed_up.sql"));
   if (signedUp && kept) sql.exec(MIG("0010_onboarded_label.sql"));
+  if (signedUp && kept) sql.exec(MIG("0013_ready_soon.sql"));   // CR-INVITEREADY.1: the full, current schema (the "before 0013" case is in ready.test.js)
   const norm = (a) => a.map((v) => (v === undefined ? null : v));
   return {
     raw: sql,
