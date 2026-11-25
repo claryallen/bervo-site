@@ -73,12 +73,27 @@ show();
       tween(idx * w);
       clearTimeout(settle); settle = setTimeout(function () { idx = null; }, 900);
     }
-    f.addEventListener('touchstart', function (e) { if (!mq.matches || e.touches.length !== 1) return; on = true; sx = e.touches[0].clientX; sy = e.touches[0].clientY; }, { passive: true });
-    f.addEventListener('touchend', function (e) {
-      if (!on) return; on = false;
-      var t = e.changedTouches[0], dx = t.clientX - sx, dy = t.clientY - sy;
-      if (Math.abs(dx) > 30 && Math.abs(dx) > Math.abs(dy)) go(dx < 0 ? 1 : -1);
+    var lx = 0, ly = 0, mode = null;
+    f.addEventListener('touchstart', function (e) {
+      if (!mq.matches || e.touches.length !== 1) { on = false; return; }
+      on = true; mode = null;
+      sx = lx = e.touches[0].clientX; sy = ly = e.touches[0].clientY;
     }, { passive: true });
+    f.addEventListener('touchmove', function (e) {
+      if (!on) return;
+      lx = e.touches[0].clientX; ly = e.touches[0].clientY;
+      var dx = lx - sx, dy = ly - sy;
+      if (mode === null && (Math.abs(dx) > 8 || Math.abs(dy) > 8)) mode = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
+      if (mode === 'x' && e.cancelable) e.preventDefault();
+    }, { passive: false });
+    function finish(x) {
+      if (!on) return; on = false;
+      var dx = x - sx;
+      if (mode === 'x' && Math.abs(dx) > 25) go(dx < 0 ? 1 : -1);
+      mode = null;
+    }
+    f.addEventListener('touchend', function (e) { finish(e.changedTouches[0] ? e.changedTouches[0].clientX : lx); }, { passive: true });
+    f.addEventListener('touchcancel', function () { finish(lx); }, { passive: true });
     f.addEventListener('keydown', function (e) { if (!mq.matches) return; if (e.key === 'ArrowRight') { e.preventDefault(); go(1); } if (e.key === 'ArrowLeft') { e.preventDefault(); go(-1); } });
   });
 })();
