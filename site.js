@@ -34,14 +34,23 @@ show();
   set();
   if (window.ResizeObserver) new ResizeObserver(set).observe(h); else window.addEventListener('resize', set);
 })();
-// Compare tables on phones: rows lock just below the pinned header row, whatever its height.
+// Compare tables on phones: a copy of the header row stays pinned under the site header and slides with the table.
 (function () {
+  if (!window.matchMedia) return;
+  var mq = matchMedia('(max-width: 899px)');
   document.querySelectorAll('#p-compare .frame').forEach(function (f) {
-    var h = f.querySelector('thead');
-    if (!h) return;
-    function set() { f.style.setProperty('--hh', h.getBoundingClientRect().height + 'px'); }
-    set();
-    if (window.ResizeObserver) new ResizeObserver(set).observe(h); else window.addEventListener('resize', set);
+    var head = f.querySelector('thead'); if (!head) return;
+    var wrap = document.createElement('div'); f.parentNode.insertBefore(wrap, f); wrap.appendChild(f);
+    var pin = document.createElement('div'); pin.className = 'cmp-pin'; pin.setAttribute('aria-hidden', 'true');
+    var t = document.createElement('table'); t.className = f.querySelector('table').className; t.appendChild(head.cloneNode(true));
+    pin.appendChild(t);
+    function apply() {
+      if (mq.matches) { if (!pin.parentNode) wrap.insertBefore(pin, f); f.classList.add('pinned'); pin.scrollLeft = f.scrollLeft; }
+      else { if (pin.parentNode) pin.parentNode.removeChild(pin); f.classList.remove('pinned'); }
+    }
+    f.addEventListener('scroll', function () { if (pin.parentNode) pin.scrollLeft = f.scrollLeft; }, { passive: true });
+    if (mq.addEventListener) mq.addEventListener('change', apply); else mq.addListener(apply);
+    apply();
   });
 })();
 // Compare tables on phones: a sideways swipe moves exactly one column and stops there (no drifting).

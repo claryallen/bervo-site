@@ -173,7 +173,7 @@ td.bervo{font-weight:500}
 #p-compare thead th:first-child{position:sticky;left:0;z-index:2}
 #p-compare tbody th{z-index:1}#p-compare thead th{position:sticky;top:0;z-index:2}#p-compare thead th:first-child{left:0;z-index:3}
 @media (min-width:900px){#p-compare .frame{overflow-x:visible}#p-compare thead th{top:var(--hdr,64px)}#p-compare table{table-layout:fixed}#p-compare thead th:first-child,#p-compare tbody th{width:200px;max-width:none}#p-compare td,#p-compare table.short td{min-width:0}#p-compare thead th{white-space:normal}#p-compare th,#p-compare td{overflow-wrap:anywhere}}
-@media (max-width:899px){#p-compare .frame{max-height:calc(100svh - var(--hdr,64px) - 24px);overflow:auto;--lab:112px;container-type:inline-size;scroll-snap-type:y mandatory;scroll-padding-top:var(--hh,56px);touch-action:pan-y;overscroll-behavior-x:none}#p-compare th,#p-compare td{box-sizing:border-box}#p-compare thead th:first-child,#p-compare tbody th{width:var(--lab);min-width:var(--lab);max-width:var(--lab);font-size:13px;padding-left:10px;padding-right:8px}#p-compare thead th:not(:first-child){width:calc(100cqw - var(--lab) - 24px);min-width:calc(100cqw - var(--lab) - 24px);white-space:normal}#p-compare tbody td:first-of-type{scroll-snap-align:start;scroll-snap-stop:always}#p-compare thead th:last-child{width:calc(100cqw - var(--lab));min-width:calc(100cqw - var(--lab))}#p-compare td,#p-compare table.short td{min-width:0}}
+@media (max-width:899px){#p-compare .frame{overflow-x:auto;overflow-y:hidden;--lab:112px;container-type:inline-size;touch-action:pan-y;overscroll-behavior-x:none;scrollbar-width:none}#p-compare .frame::-webkit-scrollbar{display:none}#p-compare .cmp-pin{position:sticky;top:var(--hdr,64px);z-index:5;overflow:hidden;--lab:112px;container-type:inline-size;border:1px solid var(--line);border-bottom:0;border-radius:10px 10px 0 0;background:var(--surface)}#p-compare .cmp-pin table{margin:0}#p-compare .cmp-pin+.frame{border-top-left-radius:0;border-top-right-radius:0}#p-compare .frame.pinned thead{visibility:collapse}#p-compare th,#p-compare td{box-sizing:border-box}#p-compare thead th:first-child,#p-compare tbody th{width:var(--lab);min-width:var(--lab);max-width:var(--lab);font-size:13px;padding-left:10px;padding-right:8px}#p-compare thead th:not(:first-child){width:calc(100cqw - var(--lab) - 24px);min-width:calc(100cqw - var(--lab) - 24px);white-space:normal}#p-compare thead th:last-child{width:calc(100cqw - var(--lab));min-width:calc(100cqw - var(--lab))}#p-compare td,#p-compare table.short td{min-width:0}}
 #p-compare .src{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(min(100%,250px),1fr));font-size:14px}
 #p-compare .src div{display:grid;gap:4px;min-width:0}
 #p-compare .src a{overflow-wrap:anywhere}
@@ -935,6 +935,6 @@ form.inv input,form.inv select{font:16px var(--body);padding:10px 12px;border:1p
   <a href="#compare">Compare</a><a href="#pricing">Pricing</a><a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a><a href="/terms" target="_blank" rel="noopener">Terms</a><a href="/invite">Request an Invite</a><button type="button" id="theme-btn" class="theme-btn">Dark mode</button><span>© BERVO LLC</span>
 </div></footer>
 
-<script src="/site.js?v=80040d9c" defer></script>
+<script src="/site.js?v=bc709253" defer></script>
 </body>
 </html>
