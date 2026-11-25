@@ -34,3 +34,75 @@ show();
   set();
   if (window.ResizeObserver) new ResizeObserver(set).observe(h); else window.addEventListener('resize', set);
 })();
+// Compare tables on phones: a copy of the header row stays pinned under the site header and slides with the table.
+(function () {
+  if (!window.matchMedia) return;
+  var mq = matchMedia('(max-width: 899px)');
+  document.querySelectorAll('#p-compare .frame').forEach(function (f) {
+    var head = f.querySelector('thead'); if (!head) return;
+    var wrap = document.createElement('div'); f.parentNode.insertBefore(wrap, f); wrap.appendChild(f);
+    var pin = document.createElement('div'); pin.className = 'cmp-pin'; pin.setAttribute('aria-hidden', 'true');
+    var t = document.createElement('table'); t.className = f.querySelector('table').className; t.appendChild(head.cloneNode(true));
+    pin.appendChild(t);
+    function apply() {
+      if (mq.matches) { if (!pin.parentNode) wrap.insertBefore(pin, f); f.classList.add('pinned'); pin.scrollLeft = f.scrollLeft; }
+      else { if (pin.parentNode) pin.parentNode.removeChild(pin); f.classList.remove('pinned'); }
+    }
+    f.addEventListener('scroll', function () { if (pin.parentNode) pin.scrollLeft = f.scrollLeft; }, { passive: true });
+    if (mq.addEventListener) mq.addEventListener('change', apply); else mq.addListener(apply);
+    apply();
+  });
+})();
+// Compare tables on phones: a sideways swipe moves exactly one column and stops there (no drifting).
+(function () {
+  if (!window.matchMedia) return;
+  var mq = matchMedia('(max-width: 899px)');
+  document.querySelectorAll('#p-compare .frame').forEach(function (f) {
+    var sx = 0, sy = 0, on = false;
+    function colW() { var b = f.querySelector('thead th:nth-child(2)'); return b ? b.getBoundingClientRect().width : 0; }
+    var idx = null, settle = null, anim = 0;
+    function tween(to) {
+      var from = f.scrollLeft, t0 = null, id = ++anim;
+      var reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+      if (reduce) { f.scrollLeft = to; return; }
+      function step(ts) {
+        if (id !== anim) return;
+        if (t0 === null) t0 = ts;
+        var p = Math.min(1, (ts - t0) / 260), e = 1 - Math.pow(1 - p, 3);
+        f.scrollLeft = from + (to - from) * e;
+        if (p < 1) requestAnimationFrame(step);
+      }
+      requestAnimationFrame(step);
+    }
+    function go(dir) {
+      var w = colW(); if (!w) return;
+      var n = Math.round((f.scrollWidth - f.clientWidth) / w);
+      if (idx === null) idx = Math.round(f.scrollLeft / w);
+      idx = Math.max(0, Math.min(n, idx + dir));
+      tween(idx * w);
+      clearTimeout(settle); settle = setTimeout(function () { idx = null; }, 900);
+    }
+    var lx = 0, ly = 0, mode = null;
+    f.addEventListener('touchstart', function (e) {
+      if (!mq.matches || e.touches.length !== 1) { on = false; return; }
+      on = true; mode = null;
+      sx = lx = e.touches[0].clientX; sy = ly = e.touches[0].clientY;
+    }, { passive: true });
+    f.addEventListener('touchmove', function (e) {
+      if (!on) return;
+      lx = e.touches[0].clientX; ly = e.touches[0].clientY;
+      var dx = lx - sx, dy = ly - sy;
+      if (mode === null && (Math.abs(dx) > 8 || Math.abs(dy) > 8)) mode = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
+      if (mode === 'x' && e.cancelable) e.preventDefault();
+    }, { passive: false });
+    function finish(x) {
+      if (!on) return; on = false;
+      var dx = x - sx;
+      if (mode === 'x' && Math.abs(dx) > 25) go(dx < 0 ? 1 : -1);
+      mode = null;
+    }
+    f.addEventListener('touchend', function (e) { finish(e.changedTouches[0] ? e.changedTouches[0].clientX : lx); }, { passive: true });
+    f.addEventListener('touchcancel', function () { finish(lx); }, { passive: true });
+    f.addEventListener('keydown', function (e) { if (!mq.matches) return; if (e.key === 'ArrowRight') { e.preventDefault(); go(1); } if (e.key === 'ArrowLeft') { e.preventDefault(); go(-1); } });
+  });
+})();
