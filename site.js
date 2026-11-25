@@ -34,3 +34,51 @@ show();
   set();
   if (window.ResizeObserver) new ResizeObserver(set).observe(h); else window.addEventListener('resize', set);
 })();
+// Compare tables on phones: rows lock just below the pinned header row, whatever its height.
+(function () {
+  document.querySelectorAll('#p-compare .frame').forEach(function (f) {
+    var h = f.querySelector('thead');
+    if (!h) return;
+    function set() { f.style.setProperty('--hh', h.getBoundingClientRect().height + 'px'); }
+    set();
+    if (window.ResizeObserver) new ResizeObserver(set).observe(h); else window.addEventListener('resize', set);
+  });
+})();
+// Compare tables on phones: a sideways swipe moves exactly one column and stops there (no drifting).
+(function () {
+  if (!window.matchMedia) return;
+  var mq = matchMedia('(max-width: 899px)');
+  document.querySelectorAll('#p-compare .frame').forEach(function (f) {
+    var sx = 0, sy = 0, on = false;
+    function colW() { var b = f.querySelector('thead th:nth-child(2)'); return b ? b.getBoundingClientRect().width : 0; }
+    var idx = null, settle = null, anim = 0;
+    function tween(to) {
+      var from = f.scrollLeft, t0 = null, id = ++anim;
+      var reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+      if (reduce) { f.scrollLeft = to; return; }
+      function step(ts) {
+        if (id !== anim) return;
+        if (t0 === null) t0 = ts;
+        var p = Math.min(1, (ts - t0) / 260), e = 1 - Math.pow(1 - p, 3);
+        f.scrollLeft = from + (to - from) * e;
+        if (p < 1) requestAnimationFrame(step);
+      }
+      requestAnimationFrame(step);
+    }
+    function go(dir) {
+      var w = colW(); if (!w) return;
+      var n = Math.round((f.scrollWidth - f.clientWidth) / w);
+      if (idx === null) idx = Math.round(f.scrollLeft / w);
+      idx = Math.max(0, Math.min(n, idx + dir));
+      tween(idx * w);
+      clearTimeout(settle); settle = setTimeout(function () { idx = null; }, 900);
+    }
+    f.addEventListener('touchstart', function (e) { if (!mq.matches || e.touches.length !== 1) return; on = true; sx = e.touches[0].clientX; sy = e.touches[0].clientY; }, { passive: true });
+    f.addEventListener('touchend', function (e) {
+      if (!on) return; on = false;
+      var t = e.changedTouches[0], dx = t.clientX - sx, dy = t.clientY - sy;
+      if (Math.abs(dx) > 30 && Math.abs(dx) > Math.abs(dy)) go(dx < 0 ? 1 : -1);
+    }, { passive: true });
+    f.addEventListener('keydown', function (e) { if (!mq.matches) return; if (e.key === 'ArrowRight') { e.preventDefault(); go(1); } if (e.key === 'ArrowLeft') { e.preventDefault(); go(-1); } });
+  });
+})();
