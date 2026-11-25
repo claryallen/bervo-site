@@ -26,3 +26,11 @@ document.getElementById("theme-btn").addEventListener("click",()=>{const n=cur()
 paint();
 
 show();
+// Compare tables: the column headers stay under the site header (it can wrap to two lines).
+(function () {
+  var h = document.querySelector('header.top');
+  if (!h) return;
+  function set() { document.documentElement.style.setProperty('--hdr', h.getBoundingClientRect().height + 'px'); }
+  set();
+  if (window.ResizeObserver) new ResizeObserver(set).observe(h); else window.addEventListener('resize', set);
+})();
