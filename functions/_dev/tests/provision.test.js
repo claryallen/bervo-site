@@ -398,7 +398,7 @@ test("F4 the day-10 link replaces a stored, never-sent day-3 link (at most one p
 
 test("F5 the note codes are the same set as the Mini's invite_to_profile.py NOTE_CODES (when the sibling checkout is there)", () => {
   let src;
-  for (const dir of ["beta-3.21-autoprovision", "daily-dashboard"]) {
+  for (const dir of ["daily-dashboard", "beta-3.21-autoprovision"]) {
     try { src = readFileSync(path.join(ROOT, "..", dir, "tools", "tenant", "invite_to_profile.py"), "utf8"); break; } catch { /* next */ }
   }
   if (!src) return;
