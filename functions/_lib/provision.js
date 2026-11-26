@@ -42,7 +42,7 @@ export const NOTE_WORDS = {
   iphone_no_mac: "iPhone without a Mac: their own texts can't come in (the invite email already says so).",
   ipad_only: "iPad and/or phone only: setup on those devices is not tested yet.",
   pronouns_default: "Pronouns are not on the form: set to \"they\".",
-  placement_fallback: "The server was built in a fallback region or size (the placement line says which).",
+  placement_fallback: "Built in a fallback region or size (the usual one wasn't available).",
 };
 export const NOTE_CODES = Object.keys(NOTE_WORDS);
 // CR-PROVREGION.2: the placement the picker reports with a fallback, {region, size, usd}; anything off-shape is dropped.
