@@ -39,7 +39,7 @@ import { checkAccess, escapeHtml, keptLabel, ONBOARD_ERASE_READY, ONBOARD_ERASE_
 import { friendlyFromDirect, friendlyLink, GO_DEMO_HOSTS, GO_LABEL_RE, GO_PAGES, GO_RESERVED } from "../_lib/golink.js";
 import { inviteBody, linkMatchesSlug, needsIphoneNoMacNote, MailError, reminderDue, reminderExpiryDate, sendingOff, sendTemplate, TEMPLATES } from "../_lib/mail.js";
 import { addressProblem, addressTaken, newCode, takenAddresses } from "../_lib/addresscode.js";
-import { BUILD_STEPS, deleteLink, linksFor, NOTE_WORDS, provisionFor, readLink, sendLinkEmail, TEMPLATE_KIND } from "../_lib/provision.js";
+import { BUILD_STEPS, deleteLink, linksFor, NOTE_WORDS, placementLine, provisionFor, readLink, sendLinkEmail, TEMPLATE_KIND } from "../_lib/provision.js";
 const HIDDEN_NOTES = new Set(["pronouns_default"]);   // Allen 11-23: never shown on the admin page
 
 // The invite email (words: daily-dashboard docs/marketing/site/INVITE_FORM_COPY_V1.md §5, approved by Allen 11-10;
@@ -191,9 +191,12 @@ function renderBuild(r, prov, links = {}, mailOff = null) {
   let codes = [];
   try { codes = prov && prov.notes ? JSON.parse(prov.notes) : []; } catch { codes = []; }
   // Allen 11-23: the pronoun default is not shown (pronouns are set per customer; CR-PRONOUNASK.1 asks at setup).
-  const shown = Array.isArray(codes) ? codes.filter((c) => Object.hasOwn(NOTE_WORDS, c) && !HIDDEN_NOTES.has(c)) : [];
-  const notes = shown.length ? `<p>Set up with these defaults (check before Send):</p><ul class="notes">${
-    shown.map((c) => `<li>${e(NOTE_WORDS[c])}</li>`).join("")}</ul>` : "";
+  // CR-PROVREGION.2: the fallback code shows the one placement sentence (the generic words only when no placement is stored)
+  const pLine = Array.isArray(codes) && codes.includes("placement_fallback") ? placementLine(prov && prov.placement) : "";
+  const shown = Array.isArray(codes) ? codes.filter((c) => Object.hasOwn(NOTE_WORDS, c) && !HIDDEN_NOTES.has(c) && !(c === "placement_fallback" && pLine)) : [];
+  const items = shown.map((c) => `<li>${e(NOTE_WORDS[c])}</li>`).join("");
+  const notes = (items ? `<p>Set up with these defaults (check before Send):</p><ul class="notes">${items}</ul>` : "") +
+    (pLine ? `<p class="placement">${e(pLine)}</p>` : "");
   return `<div class="build"><p>Server: <span class="bs bs-${e(prov ? prov.state : "none")}">${line}</span>${prov && prov.finished_at ? ` · ${fmt(prov.finished_at)}` : ""}</p>${notes}</div>`;
 }
 

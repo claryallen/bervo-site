@@ -13,6 +13,9 @@
 //   stopped     {request_id, run_id, step}   building -> stopped before <step>: the request was withdrawn (Not now)
 //                                             mid-build (fix round 1 item 3); approving it again makes it claimable
 //   notes       {request_id, run_id, codes}  the profile's unattended defaults as fixed codes (NOTE_CODES only)
+//                                             optional placement {region, size, usd} (CR-PROVREGION.2, migration 0014):
+//                                             region ^[a-z0-9]{3,8}$, size ^[a-z0-9-]{3,40}$, usd int 1-9999 or null;
+//                                             invalid placement is dropped, the codes are still stored.
 //   signed_up   {request_id}                 (CR-SIGNUPSIGNAL.1, Allen 11-23) the Mini saw the owner set a password on
 //                                             their server: invite_requests.signed_up_at, once, invited requests only.
 //                                             Run-independent (no run_id). Already recorded -> 200 "already". Needs
@@ -27,7 +30,7 @@
 //                                             round 2), else "already". A bad value -> 400.
 // A failed row is never claimable: only the admin page's Retry (failed -> queued) makes it buildable again.
 // Signed like /api/account-mail with its own secret (BERVO_PROVISION_SECRET; 5 minutes; each signature once).
-import { MAX_BYTES, NOTE_CODES, reply, RUN_ID_RE, STEPS, verifySigned } from "../_lib/provision.js";
+import { cleanPlacement, MAX_BYTES, NOTE_CODES, reply, RUN_ID_RE, STEPS, verifySigned } from "../_lib/provision.js";
 
 const ACTIONS = ["claim", "step", "ready", "failed", "waiting_cap", "stopped", "notes", "signed_up"];
 const NO_RUN_ID = ["waiting_cap", "signed_up"];
@@ -114,8 +117,17 @@ export async function onRequestPost(context) {
       st = db.prepare("UPDATE invite_provision SET step = ?, updated_at = ? WHERE request_id = ? AND state = 'building' AND run_id = ?")
         .bind(step, now, id, runId);
     } else if (action === "notes") {
-      st = db.prepare("UPDATE invite_provision SET notes = ?, updated_at = ? WHERE request_id = ? AND state = 'building' AND run_id = ?")
-        .bind(JSON.stringify([...new Set(codes)]), now, id, runId);
+      const pl = cleanPlacement(body?.placement);
+      const noteJson = JSON.stringify([...new Set(codes)]);
+      const plain = () => db.prepare("UPDATE invite_provision SET notes = ?, updated_at = ? WHERE request_id = ? AND state = 'building' AND run_id = ?")
+        .bind(noteJson, now, id, runId);
+      st = plain();
+      if (pl) {
+        const withPl = db.prepare("UPDATE invite_provision SET notes = ?, placement = ?, updated_at = ? WHERE request_id = ? AND state = 'building' AND run_id = ?")
+          .bind(noteJson, JSON.stringify(pl), now, id, runId);
+        try { const r0 = await withPl.run(); changes = Number(r0?.meta?.changes ?? 0); st = null; }
+        catch { /* 0014 not applied: keep the codes */ }
+      }
     } else if (action === "stopped") {
       st = db.prepare("UPDATE invite_provision SET state = 'stopped', step = ?, finished_at = ?, updated_at = ? " +
         "WHERE request_id = ? AND state = 'building' AND run_id = ?").bind(step, now, now, id, runId);
@@ -126,8 +138,7 @@ export async function onRequestPost(context) {
       st = db.prepare("UPDATE invite_provision SET state = 'failed', step = ?, finished_at = ?, updated_at = ? " +
         "WHERE request_id = ? AND state = 'building' AND run_id = ?").bind(step, now, now, id, runId);
     }
-    const r = await st.run();
-    changes = Number(r?.meta?.changes ?? 0);
+    if (st) { const r = await st.run(); changes = Number(r?.meta?.changes ?? 0); }
   } catch {
     return reply(503, { ok: false, result: "not_configured" });   // e.g. the 0007 table is missing
   }
