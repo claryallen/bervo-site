@@ -42,8 +42,29 @@ export const NOTE_WORDS = {
   iphone_no_mac: "iPhone without a Mac: their own texts can't come in (the invite email already says so).",
   ipad_only: "iPad and/or phone only: setup on those devices is not tested yet.",
   pronouns_default: "Pronouns are not on the form: set to \"they\".",
+  placement_fallback: "The server was built in a fallback region or size (the placement line says which).",
 };
 export const NOTE_CODES = Object.keys(NOTE_WORDS);
+// CR-PROVREGION.2: the placement the picker reports with a fallback, {region, size, usd}; anything off-shape is dropped.
+export const USUAL_SIZE = "s-2vcpu-4gb";
+export function cleanPlacement(p) {
+  if (!p || typeof p !== "object" || Array.isArray(p)) return null;
+  const { region, size, usd } = p;
+  if (!(typeof region === "string" && /^[a-z0-9]{3,8}$/.test(region))) return null;
+  if (!(typeof size === "string" && /^[a-z0-9-]{3,40}$/.test(size))) return null;
+  if (!(usd === null || (Number.isInteger(usd) && usd >= 1 && usd <= 9999))) return null;
+  return { region, size, usd };
+}
+// The one sentence for the admin page, or "" (stored text is re-validated: a bad row shows nothing).
+export function placementLine(raw) {
+  let p = null;
+  try { p = cleanPlacement(typeof raw === "string" ? JSON.parse(raw) : raw); } catch { p = null; }
+  if (!p) return "";
+  const region = p.region.toUpperCase();
+  if (p.size !== USUAL_SIZE)
+    return `Built in ${region} on the ${p.usd == null ? p.size : "$" + p.usd} size (the usual size wasn't available).`;
+  return `Built in ${region} (the usual region wasn't available).`;
+}
 // new_customer.sh's steps, plus the picker's own: profile (invite_to_profile.py), approval_check (the unattended
 // check refused), scan (the secret scan failed the log), timeout (the wall-clock limit), interrupted (the Mini
 // stopped mid-build). Kept in step with 0007_provisioning.sql and auto_provision.py (tests check both).
@@ -171,8 +192,11 @@ export async function provisionFor(db, ids) {
   try {
     for (let i = 0; i < ids.length; i += 90) {
       const part = ids.slice(i, i + 90);
-      const { results } = await db.prepare(`SELECT request_id, state, step, queued_at, started_at, finished_at, retry_requested_at, notes, updated_at ` +
-        `FROM invite_provision WHERE request_id IN (${part.map(() => "?").join(",")})`).bind(...part).all();
+      const cols = "request_id, state, step, queued_at, started_at, finished_at, retry_requested_at, notes, updated_at";
+      const where = `FROM invite_provision WHERE request_id IN (${part.map(() => "?").join(",")})`;
+      let results;
+      try { ({ results } = await db.prepare(`SELECT ${cols}, placement ${where}`).bind(...part).all()); }
+      catch { ({ results } = await db.prepare(`SELECT ${cols} ${where}`).bind(...part).all()); }   // 0014 not applied yet
       for (const r of results) out.set(r.request_id, r);
     }
   } catch { /* no 0007 table yet */ }

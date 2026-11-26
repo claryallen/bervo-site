@@ -35,7 +35,7 @@ const FAKE_PM = "fake-postmark-token-for-tests";
 function makeD1() {
   const sql = new DatabaseSync(":memory:");
   for (const n of ["0001_invite_requests.sql", "0003_other_email.sql", "0004_computers.sql", "0005_heard_from.sql",
-    "0006_drop_company_role.sql", "0002_invite_mail.sql", "0007_provisioning.sql"]) sql.exec(MIG(n));
+    "0006_drop_company_role.sql", "0002_invite_mail.sql", "0007_provisioning.sql", "0014_placement.sql"]) sql.exec(MIG(n));
   const norm = (a) => a.map((v) => (v === undefined ? null : v));
   return {
     raw: sql,
@@ -397,11 +397,18 @@ test("F4 the day-10 link replaces a stored, never-sent day-3 link (at most one p
 });
 
 test("F5 the note codes are the same set as the Mini's invite_to_profile.py NOTE_CODES (when the sibling checkout is there)", () => {
-  const p = path.join(ROOT, "..", "beta-3.21-autoprovision", "tools", "tenant", "invite_to_profile.py");
   let src;
-  try { src = readFileSync(p, "utf8"); } catch { return; }
+  for (const dir of ["beta-3.21-autoprovision", "daily-dashboard"]) {
+    try { src = readFileSync(path.join(ROOT, "..", dir, "tools", "tenant", "invite_to_profile.py"), "utf8"); break; } catch { /* next */ }
+  }
+  if (!src) return;
   const py = [...src.match(/NOTE_CODES = \(([^)]*)\)/s)[1].matchAll(/"([a-z_]+)"/g)].map((m) => m[1]);
   assert.deepEqual(py, prov.NOTE_CODES);
+});
+
+test("PR1 CR-PROVREGION.2: migration 0014 is one nullable column on invite_provision and nothing else", () => {
+  const sqlText = MIG("0014_placement.sql").split("\n").filter((l) => !l.trim().startsWith("--")).join("\n").trim();
+  assert.match(sqlText, /^ALTER TABLE invite_provision ADD COLUMN placement TEXT CHECK \(placement IS NULL OR length\(placement\) <= 120\);$/);
 });
 
 test("G2 migration: 0007 is the one and final shape (stopped + notes in the CREATE); no other migration touches these tables", () => {
@@ -409,7 +416,7 @@ test("G2 migration: 0007 is the one and final shape (stopped + notes in the CREA
   assert.match(m7, /state IN \('queued', 'building', 'ready', 'failed', 'waiting_cap', 'stopped'\)/);
   assert.match(m7, /\bnotes\s+TEXT CHECK/);
   const others = execFileSync("git", ["ls-files", "functions/_dev/migrations"], { cwd: ROOT, encoding: "utf8" })
-    .split("\n").filter((f) => f && !f.endsWith("0007_provisioning.sql"));
+    .split("\n").filter((f) => f && !f.endsWith("0007_provisioning.sql") && !f.endsWith("0014_placement.sql"));
   // CR-ONBOARDEDTAB.1 fix round 3: 0011 (a one-time data sweep) DELETEs rows from invite_provision / invite_links;
   // what stays forbidden is any SCHEMA statement on these tables outside 0007.
   for (const f of others) {
@@ -444,4 +451,93 @@ test("SD3 the pronoun default note is never shown on the admin page (Allen 11-23
   await state(db, { action: "notes", request_id: id, run_id: "run-aaaaaaaa", codes: ["plan_standard", "pronouns_default"] });
   page = await adminGet(db);
   assert.ok(page.includes("Plan Standard: built as a dedicated server") && !page.includes("Pronouns are not on the form"));
+});
+
+// ---------- CR-PROVREGION.2: the fallback placement ----------
+const PLACED = async (placement, codes = ["placement_fallback"]) => {
+  const db = makeD1(); const id = seed(db);
+  await state(db, { action: "claim", request_id: id, run_id: "run-aaaaaaaa" });
+  const r = await state(db, { action: "notes", request_id: id, run_id: "run-aaaaaaaa", codes, placement });
+  return { db, id, r };
+};
+
+test("PR2 placement_fallback is a known code and the note words exist for it", () => {
+  assert.ok(prov.NOTE_CODES.includes("placement_fallback"));
+  assert.ok(typeof prov.NOTE_WORDS.placement_fallback === "string" && prov.NOTE_WORDS.placement_fallback.length > 0);
+  assert.ok(!/[\u2014\u2013]/.test(prov.NOTE_WORDS.placement_fallback));
+});
+
+test("PR3 a valid placement is stored beside the codes (usd int, or null)", async () => {
+  let { db, id, r } = await PLACED({ region: "nyc1", size: "s-2vcpu-4gb", usd: 24 });
+  assert.equal(r.status, 200);
+  assert.equal(provRow(db, id).notes, '["placement_fallback"]');
+  assert.deepEqual(JSON.parse(provRow(db, id).placement), { region: "nyc1", size: "s-2vcpu-4gb", usd: 24 });
+  ({ db, id, r } = await PLACED({ region: "sfo3", size: "s-4vcpu-8gb", usd: null }));
+  assert.deepEqual(JSON.parse(provRow(db, id).placement), { region: "sfo3", size: "s-4vcpu-8gb", usd: null });
+});
+
+test("PR4 an invalid placement is dropped silently and the codes are kept (200)", async () => {
+  const bads = [
+    { region: "NYC1", size: "s-2vcpu-4gb", usd: 24 }, { region: "ny", size: "s-2vcpu-4gb", usd: 24 },
+    { region: "nyc1; drop", size: "s-2vcpu-4gb", usd: 24 }, { region: "nyc1", size: "S_2", usd: 24 },
+    { region: "nyc1", size: "s-2vcpu-4gb", usd: 0 }, { region: "nyc1", size: "s-2vcpu-4gb", usd: 10000 },
+    { region: "nyc1", size: "s-2vcpu-4gb", usd: 24.5 }, { region: "nyc1", size: "s-2vcpu-4gb", usd: "24" },
+    { region: "nyc1", size: "s-2vcpu-4gb" }, { region: "nyc1", usd: 24 }, "nyc1", ["nyc1"], 7, null,
+    { region: "nyc1", size: "a".repeat(41), usd: 24 }, { region: "abcdefghi", size: "s-2vcpu-4gb", usd: 24 },
+  ];
+  for (const bad of bads) {
+    const { db, id, r } = await PLACED(bad);
+    assert.equal(r.status, 200, JSON.stringify(bad));
+    assert.equal(provRow(db, id).notes, '["placement_fallback"]', JSON.stringify(bad));
+    assert.equal(provRow(db, id).placement, null, JSON.stringify(bad));
+  }
+  const { db, id } = await PLACED(undefined);
+  assert.equal(provRow(db, id).placement, null);
+});
+
+test("PR5 the admin page shows the size sentence, or the region sentence when only the region changed", async () => {
+  let { db } = await PLACED({ region: "nyc1", size: "s-4vcpu-8gb", usd: 28 });
+  let page = await adminGet(db);
+  assert.ok(page.includes("Built in NYC1 on the $28 size (the usual size wasn&#39;t available)."), page.match(/Built in[^<]*/)?.[0]);
+  assert.ok(!page.includes("fallback region or size"), "the generic words give way to the sentence");
+  ({ db } = await PLACED({ region: "sfo3", size: "s-2vcpu-4gb", usd: 24 }));
+  page = await adminGet(db);
+  assert.ok(page.includes("Built in SFO3 (the usual region wasn&#39;t available)."));
+  ({ db } = await PLACED({ region: "nyc1", size: "s-4vcpu-8gb", usd: null }));
+  assert.ok((await adminGet(db)).includes("Built in NYC1 on the s-4vcpu-8gb size (the usual size wasn&#39;t available)."));
+  assert.ok(!/[\u2014\u2013]/.test(placementLineOf({ region: "nyc1", size: "s-4vcpu-8gb", usd: 28 })));
+});
+const placementLineOf = (p) => prov.placementLine(JSON.stringify(p));
+
+test("PR6 a tampered stored placement is escaped or dropped, never raw HTML", async () => {
+  const { db, id } = await PLACED({ region: "nyc1", size: "s-4vcpu-8gb", usd: 28 });
+  db.raw.prepare("UPDATE invite_provision SET placement = ? WHERE request_id = ?").run('{"region":"<script>x</script>","size":"s-2vcpu-4gb","usd":1}', id);
+  let page = await adminGet(db);
+  assert.ok(!page.includes("<script>x"), "never raw");
+  assert.ok(page.includes("Server:") && page.includes("fallback region or size"), "invalid row: the page still renders, with the generic words");
+  db.raw.prepare("UPDATE invite_provision SET placement = ? WHERE request_id = ?").run("not json", id);
+  page = await adminGet(db);
+  assert.ok(page.includes("Server:") && page.includes("fallback region or size"));
+  assert.equal(prov.placementLine('{"region":"nyc1","size":"s-2vcpu-4gb","usd":1}'), "Built in NYC1 (the usual region wasn't available).");
+});
+
+test("PR7 a stored note row with a code the page has no words for cannot break the page; no code, no placement line", async () => {
+  const { db, id } = await PLACED({ region: "nyc1", size: "s-4vcpu-8gb", usd: 28 });
+  db.raw.prepare("UPDATE invite_provision SET notes = ? WHERE request_id = ?").run('["brand_new_code","android",7,null,{"a":1}]', id);
+  let page = await adminGet(db);
+  assert.ok(page.includes("Server:") && page.includes("Android"), "known words still shown");
+  assert.ok(!page.includes("brand_new_code") && !page.includes("Built in"), "unknown code skipped; placement shows only with the code");
+  db.raw.prepare("UPDATE invite_provision SET notes = ? WHERE request_id = ?").run('{"not":"an array"}', id);
+  assert.ok((await adminGet(db)).includes("Server:"));
+});
+
+test("PR8 before migration 0014 is applied: the page still lists the build and notes still store the codes", async () => {
+  const db = makeD1(); const id = seed(db);
+  db.raw.exec("ALTER TABLE invite_provision DROP COLUMN placement");
+  await state(db, { action: "claim", request_id: id, run_id: "run-aaaaaaaa" });
+  const r = await state(db, { action: "notes", request_id: id, run_id: "run-aaaaaaaa", codes: ["placement_fallback", "android"], placement: { region: "nyc1", size: "s-4vcpu-8gb", usd: 28 } });
+  assert.equal(r.status, 200);
+  assert.equal(provRow(db, id).notes, '["placement_fallback","android"]');
+  const page = await adminGet(db);
+  assert.ok(page.includes("building") && page.includes("fallback region or size"));
 });
